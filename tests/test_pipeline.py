@@ -250,6 +250,16 @@ class PipelineTest(unittest.TestCase):
         self.assertTrue(cluster_depths.share_cluster.between(0, 1).all())
         boundary_depths = cluster_depths.groupby("depth").boundary_nodes.sum()
         self.assertEqual(boundary_depths.get(4, 0), int(self.nodes.boundary.sum()))
+        counterparties = pd.read_csv(self.out / "top_counterparties.csv")
+        source_edges = pd.read_parquet(ROOT / "data" / "edges.parquet")
+        directed_edges = set(zip(source_edges.src, source_edges.dst))
+        for row in counterparties.itertuples(index=False):
+            self.assertLessEqual(row.rank, 3)
+            edge = (row.gid, row.counterparty_gid) if row.direction == "out" else (row.counterparty_gid, row.gid)
+            self.assertIn(edge, directed_edges)
+        for _, group in counterparties.groupby(["gid", "direction"]):
+            self.assertEqual(group["rank"].tolist(), list(range(1, len(group) + 1)))
+            self.assertTrue(group.sum_kzt.is_monotonic_decreasing)
 
     def test_timeline_matches_transactions(self):
         timeline = pd.read_csv(self.out / "timeline.csv")
@@ -294,6 +304,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"cycleNodes":[', html)
         self.assertIn('"depthSummary":[', html)
         self.assertIn('"clusterDepths":[', html)
+        self.assertIn('"topCounterparties":[', html)
         self.assertIn("<canvas", html)
 
     def test_outputs_are_identical_after_input_rows_are_shuffled(self):
@@ -319,7 +330,7 @@ class PipelineTest(unittest.TestCase):
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
                          "cluster_roles.csv", "seed_role_reach.csv", "attention_examples.csv",
                          "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
-                         "cluster_depths.csv", "timeline.csv", "network.html"):
+                         "cluster_depths.csv", "top_counterparties.csv", "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),
