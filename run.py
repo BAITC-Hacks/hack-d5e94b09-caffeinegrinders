@@ -27,19 +27,44 @@ def load_data(path: Path):
         missing = columns - set(frame.columns)
         if missing:
             raise ValueError(f"Missing columns: {sorted(missing)}")
+        if frame[list(columns)].isna().any().any():
+            raise ValueError("Required fields must not be null")
+    if nodes.empty:
+        raise ValueError("nodes must not be empty")
+    for frame, columns in ((nodes, ["gid", "depth"]),
+                           (edges, ["src", "dst", "n_tx"]),
+                           (tx, ["src", "dst"])):
+        for column in columns:
+            if not pd.api.types.is_integer_dtype(frame[column]):
+                raise ValueError(f"{column} must use an integer dtype")
+    if not pd.api.types.is_bool_dtype(nodes.is_seed):
+        raise ValueError("is_seed must use a boolean dtype")
+    if not nodes.depth.between(0, 4).all():
+        raise ValueError("depth must be between 0 and 4")
+    for frame in (edges, tx):
+        if not pd.api.types.is_numeric_dtype(frame.sum_kzt) or not (
+            np.isfinite(frame.sum_kzt) & (frame.sum_kzt > 0)
+        ).all():
+            raise ValueError("sum_kzt must be finite and positive")
+    if not (edges.n_tx > 0).all():
+        raise ValueError("n_tx must be positive")
     if nodes.gid.isna().any() or nodes.gid.duplicated().any():
         raise ValueError("nodes.gid must be unique and nonempty")
     if edges.duplicated(["src", "dst"]).any():
         raise ValueError("Duplicate aggregated edges")
     gids = set(nodes.gid)
-    if not set(edges.src).union(edges.dst).issubset(gids):
-        raise ValueError("Edge endpoint absent from nodes")
+    for frame in (edges, tx):
+        if not set(frame.src).union(frame.dst).issubset(gids):
+            raise ValueError("Edge or transaction endpoint absent from nodes")
     grouped = tx.groupby(["src", "dst"], as_index=False).agg(amount=("sum_kzt", "sum"), count=("sum_kzt", "size"))
     check = edges.merge(grouped, on=["src", "dst"], how="outer", indicator=True)
-    if (check._merge != "both").any() or not np.allclose(check.sum_kzt, check.amount) or not (check.n_tx == check["count"]).all():
+    if (check._merge != "both").any() or not np.allclose(check.sum_kzt, check.amount, rtol=0, atol=.01) or not (check.n_tx == check["count"]).all():
         raise ValueError("transactions and edges disagree")
     tx["date"] = pd.to_datetime(tx["date"], errors="raise")
-    return nodes.sort_values("gid").reset_index(drop=True), edges, tx
+    if tx.date.isna().any():
+        raise ValueError("Transaction dates must not be empty")
+    return (nodes.sort_values("gid").reset_index(drop=True),
+            edges.sort_values(["src", "dst"]).reset_index(drop=True), tx)
 
 
 def graph_features(nodes: pd.DataFrame, edges: pd.DataFrame, tx: pd.DataFrame):
