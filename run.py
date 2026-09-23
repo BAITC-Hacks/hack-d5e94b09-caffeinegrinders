@@ -1055,6 +1055,33 @@ def role_flows(edges: pd.DataFrame, df: pd.DataFrame):
                               ascending=[False, True, True]).reset_index(drop=True)
 
 
+def depth_flows(edges: pd.DataFrame, df: pd.DataFrame):
+    """Aggregated visible transfers between crawl-depth layers."""
+    columns = ["src_depth", "dst_depth", "direction", "sum_kzt", "n_edges", "n_tx"]
+    if edges.empty:
+        return pd.DataFrame(columns=columns)
+    depth_of = dict(zip(df.gid, df.depth))
+    rows = []
+    for edge in edges.itertuples(index=False):
+        src_depth = int(depth_of[edge.src])
+        dst_depth = int(depth_of[edge.dst])
+        if dst_depth > src_depth:
+            direction = "outward"
+        elif dst_depth < src_depth:
+            direction = "backward"
+        else:
+            direction = "same_depth"
+        rows.append({"src_depth": src_depth, "dst_depth": dst_depth, "direction": direction,
+                     "sum_kzt": float(edge.sum_kzt), "n_edges": 1, "n_tx": int(edge.n_tx)})
+    result = pd.DataFrame(rows).groupby(["src_depth", "dst_depth", "direction"], as_index=False).agg(
+        sum_kzt=("sum_kzt", "sum"),
+        n_edges=("n_edges", "sum"),
+        n_tx=("n_tx", "sum"),
+    )
+    result["sum_kzt"] = result.sum_kzt.round(2)
+    return result.sort_values(["src_depth", "dst_depth", "direction"]).reset_index(drop=True)
+
+
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
                   risk_flags: pd.DataFrame, flows: pd.DataFrame,
@@ -1070,7 +1097,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   route_nodes: pd.DataFrame, cycle_nodes: pd.DataFrame,
                   depths: pd.DataFrame, cluster_depths: pd.DataFrame,
                   role_depths: pd.DataFrame, role_flow_rows: pd.DataFrame,
-                  counterparties: pd.DataFrame,
+                  depth_flow_rows: pd.DataFrame, counterparties: pd.DataFrame,
                   timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
@@ -1159,6 +1186,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     cluster_depths.to_csv(out / "cluster_depths.csv", index=False)
     role_depths.to_csv(out / "role_depths.csv", index=False)
     role_flow_rows.to_csv(out / "role_flows.csv", index=False)
+    depth_flow_rows.to_csv(out / "depth_flows.csv", index=False)
     counterparties.to_csv(out / "top_counterparties.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
 
@@ -1227,6 +1255,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "clusterDepths": cluster_depths.to_dict(orient="records"),
                "roleDepths": role_depths.to_dict(orient="records"),
                "roleFlows": role_flow_rows.to_dict(orient="records"),
+               "depthFlows": depth_flow_rows.to_dict(orient="records"),
                "topCounterparties": counterparties.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
@@ -1277,13 +1306,14 @@ def main():
     cluster_depths = cluster_depth_matrix(df)
     role_depths = role_depth_matrix(df)
     role_flow_rows = role_flows(edges, df)
+    depth_flow_rows = depth_flows(edges, df)
     counterparties = top_counterparties(edges, df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                   seed_report, seed_components, components, component_roles,
                   component_attention, isolated_nodes, amount_bands, roles, top_edges,
                   daily, boundary_queue, cluster_roles, seed_roles, attention_rows, cluster_attention,
                   route_nodes, cycle_nodes, depths, cluster_depths, role_depths,
-                  role_flow_rows, counterparties,
+                  role_flow_rows, depth_flow_rows, counterparties,
                   timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()

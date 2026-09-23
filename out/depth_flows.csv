@@ -1,0 +1,15 @@
+src_depth,dst_depth,direction,sum_kzt,n_edges,n_tx
+0,0,same_depth,6609582.0,27,157
+0,1,outward,48684596.4,493,712
+1,0,backward,5506206.0,56,145
+1,1,same_depth,6214120.0,62,103
+1,2,outward,54064001.54,522,812
+2,0,backward,1318644.0,22,42
+2,1,backward,24926442.13,197,362
+2,2,same_depth,10556837.2,79,110
+2,3,outward,122189653.21,902,1174
+3,0,backward,1414735.0,20,37
+3,1,backward,3031847.0,34,41
+3,2,backward,16644482.85,180,341
+3,3,same_depth,8056700.0,68,82
+3,4,outward,56672164.68,457,722
