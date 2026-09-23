@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 from collections import Counter, defaultdict
+from itertools import combinations
 from pathlib import Path
 
 import networkx as nx
@@ -625,6 +626,38 @@ def depth_attention_summary(df: pd.DataFrame, attention_rows: pd.DataFrame):
     ).reset_index(drop=True)
 
 
+def attention_overlap_summary(attention_rows: pd.DataFrame):
+    """Pairs of optional attention flags observed on the same node."""
+    columns = ["flag_a", "flag_b", "n_nodes", "avg_priority_score",
+               "top_gids", "meaning_a", "meaning_b"]
+    if attention_rows.empty:
+        return pd.DataFrame(columns=columns)
+    meanings = attention_rows.groupby("flag").meaning.first().to_dict()
+    node_priority = attention_rows.sort_values(
+        ["priority_score", "gid"], ascending=[False, True]
+    ).drop_duplicates("gid").set_index("gid").priority_score
+    pair_nodes = defaultdict(set)
+    for gid, group in attention_rows.groupby("gid", sort=True):
+        flags = sorted(set(group.flag))
+        for flag_a, flag_b in combinations(flags, 2):
+            pair_nodes[(flag_a, flag_b)].add(int(gid))
+    rows = []
+    for (flag_a, flag_b), gids in pair_nodes.items():
+        ranked = node_priority.loc[sorted(gids)].reset_index()
+        ranked = ranked.sort_values(["priority_score", "gid"], ascending=[False, True])
+        top_gids = ranked.head(10).gid.tolist()
+        rows.append({"flag_a": flag_a,
+                     "flag_b": flag_b,
+                     "n_nodes": int(len(gids)),
+                     "avg_priority_score": round(float(ranked.priority_score.mean()), 6),
+                     "top_gids": ";".join(str(int(gid)) for gid in top_gids),
+                     "meaning_a": meanings[flag_a],
+                     "meaning_b": meanings[flag_b]})
+    return pd.DataFrame(rows, columns=columns).sort_values(
+        ["n_nodes", "flag_a", "flag_b"], ascending=[False, True, True]
+    ).reset_index(drop=True)
+
+
 def cluster_flows(df: pd.DataFrame, edges: pd.DataFrame):
     """Aggregated transfers between clusters for ingress/egress review."""
     cluster_of = dict(zip(df.gid, df.cluster_id))
@@ -1179,6 +1212,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   seed_roles: pd.DataFrame, seed_overlap_rows: pd.DataFrame,
                   attention_rows: pd.DataFrame, cluster_attention: pd.DataFrame,
                   role_attention: pd.DataFrame, depth_attention: pd.DataFrame,
+                  attention_overlap: pd.DataFrame,
                   route_nodes: pd.DataFrame, cycle_nodes: pd.DataFrame,
                   depths: pd.DataFrame, cluster_depths: pd.DataFrame,
                   role_depths: pd.DataFrame, role_flow_rows: pd.DataFrame,
@@ -1268,6 +1302,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     cluster_attention.to_csv(out / "cluster_attention.csv", index=False)
     role_attention.to_csv(out / "role_attention.csv", index=False)
     depth_attention.to_csv(out / "depth_attention.csv", index=False)
+    attention_overlap.to_csv(out / "attention_overlap.csv", index=False)
     route_nodes.to_csv(out / "route_nodes.csv", index=False)
     cycle_nodes.to_csv(out / "cycle_nodes.csv", index=False)
     depths.to_csv(out / "depth_summary.csv", index=False)
@@ -1340,6 +1375,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "clusterAttention": cluster_attention.to_dict(orient="records"),
                "roleAttention": role_attention.to_dict(orient="records"),
                "depthAttention": depth_attention.to_dict(orient="records"),
+               "attentionOverlap": attention_overlap.to_dict(orient="records"),
                "routeNodes": route_nodes.to_dict(orient="records"),
                "cycleNodes": cycle_nodes.to_dict(orient="records"),
                "depthSummary": depths.to_dict(orient="records"),
@@ -1394,6 +1430,7 @@ def main():
     cluster_attention = cluster_attention_summary(df, attention_rows)
     role_attention = role_attention_summary(df, attention_rows)
     depth_attention = depth_attention_summary(df, attention_rows)
+    attention_overlap = attention_overlap_summary(attention_rows)
     route_nodes = route_node_membership(routes, df)
     cycle_nodes = cycle_node_membership(cycles, df)
     depths = depth_summary(df)
@@ -1407,6 +1444,7 @@ def main():
                   component_attention, isolated_nodes, amount_bands, roles, top_edges,
                   daily, boundary_queue, cluster_roles, seed_roles, seed_overlap_rows,
                   attention_rows, cluster_attention, role_attention, depth_attention,
+                  attention_overlap,
                   route_nodes, cycle_nodes, depths, cluster_depths, role_depths,
                   role_flow_rows, depth_flow_rows, counterparties,
                   timeline, args.out)

@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from itertools import combinations
 from pathlib import Path
 
 import numpy as np
@@ -191,6 +192,19 @@ class PipelineTest(unittest.TestCase):
         actual_depth_attention = depth_attention.set_index(["depth", "flag"]).n_nodes
         self.assertEqual(actual_depth_attention.to_dict(), expected_depth_attention.to_dict())
         self.assertTrue(depth_attention.share_depth.between(0, 1).all())
+        attention_overlap = pd.read_csv(self.out / "attention_overlap.csv")
+        expected_overlap = {}
+        for gid, group in attention_examples.groupby("gid"):
+            for pair in combinations(sorted(set(group.flag)), 2):
+                expected_overlap[pair] = expected_overlap.get(pair, 0) + 1
+        actual_overlap = attention_overlap.set_index(["flag_a", "flag_b"]).n_nodes
+        self.assertEqual(actual_overlap.to_dict(), expected_overlap)
+        self.assertTrue(attention_overlap.n_nodes.is_monotonic_decreasing)
+        for row in attention_overlap.itertuples(index=False):
+            examples = [int(gid) for gid in row.top_gids.split(";") if gid]
+            nodes_a = set(attention_examples.loc[attention_examples.flag == row.flag_a, "gid"])
+            nodes_b = set(attention_examples.loc[attention_examples.flag == row.flag_b, "gid"])
+            self.assertTrue(set(examples).issubset(nodes_a & nodes_b))
         flows = pd.read_csv(self.out / "cluster_flows.csv")
         lookup = dict(zip(self.nodes.gid, self.nodes.cluster_id))
         expected = 0.0
@@ -404,6 +418,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"clusterAttention":[', html)
         self.assertIn('"roleAttention":[', html)
         self.assertIn('"depthAttention":[', html)
+        self.assertIn('"attentionOverlap":[', html)
         self.assertIn('"routeNodes":[', html)
         self.assertIn('"cycleNodes":[', html)
         self.assertIn('"depthSummary":[', html)
@@ -439,7 +454,7 @@ class PipelineTest(unittest.TestCase):
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
                          "cluster_roles.csv", "seed_role_reach.csv", "seed_overlap.csv", "attention_examples.csv",
                          "cluster_attention.csv", "role_attention.csv", "depth_attention.csv",
-                         "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
+                         "attention_overlap.csv", "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
                          "cluster_depths.csv", "role_depths.csv", "role_flows.csv", "depth_flows.csv",
                          "top_counterparties.csv",
                          "timeline.csv", "network.html"):
