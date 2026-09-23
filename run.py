@@ -16,6 +16,7 @@ import pandas as pd
 ROLES = {"coordinator", "consolidator", "transit", "distributor", "terminal", "peripheral"}
 ROOT = Path(__file__).resolve().parent
 CYCLE_MAX_LEN = 4
+EXTRACT_THRESHOLD_KZT = 5_000
 NEAR_THRESHOLD_KZT = 10_000
 SYNC_PAYERS_MIN = 3
 REPEAT_AMOUNT_MIN = 4
@@ -133,7 +134,8 @@ def graph_features(nodes: pd.DataFrame, edges: pd.DataFrame, tx: pd.DataFrame):
     repeats = tx.groupby(["src", "sum_kzt"]).size().groupby("src").max()
     df["repeat_amount_max"] = df.gid.map(repeats).fillna(0).astype(int)
     # Transfers right above the 5 000 KZT cut-off hint at splitting below it.
-    near = tx[tx.sum_kzt < NEAR_THRESHOLD_KZT].groupby("dst").size()
+    # The lower bound matters on extracts collected without the cut-off.
+    near = tx[tx.sum_kzt.between(EXTRACT_THRESHOLD_KZT, NEAR_THRESHOLD_KZT, inclusive="left")].groupby("dst").size()
     df["near_threshold_in"] = df.gid.map(near).fillna(0).astype(int)
 
     # Traversal expands every node up to depth 3, so their outgoing transfers are
@@ -333,8 +335,10 @@ def network_resilience(graph: nx.DiGraph, df: pd.DataFrame):
     at_random = [int(x) for x in np.random.default_rng(42).permutation(df.gid.to_numpy())]
     base_reach = seed_reach_pairs(graph, seeds)
     rows = []
+    # On graphs smaller than the largest step, report what was actually removed.
+    steps = sorted({min(step, graph.number_of_nodes()) for step in REMOVAL_STEPS})
     for strategy, order in (("priority", by_priority), ("random", at_random)):
-        for n in REMOVAL_STEPS:
+        for n in steps:
             rest = graph.copy()
             rest.remove_nodes_from(order[:n])
             components = [len(c) for c in nx.weakly_connected_components(rest) if len(c) > 1]
