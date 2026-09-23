@@ -683,6 +683,33 @@ def cluster_role_matrix(df: pd.DataFrame):
     ).reset_index(drop=True)
 
 
+def seed_role_reach(graph: nx.DiGraph, df: pd.DataFrame):
+    """Per-seed reachable role mix within the documented four-transfer horizon."""
+    role_cols = [f"n_{role}" for role in ROLE_ORDER]
+    columns = ["seed_gid", "cluster_id", "reachable_nodes", "max_depth_reached",
+               *role_cols, "boundary_nodes", "attention_nodes", "top_reachable_gids"]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    lookup = df.set_index("gid")
+    rows = []
+    for seed in df.loc[df.is_seed, "gid"].sort_values():
+        seen = nx.single_source_shortest_path_length(graph, int(seed), cutoff=4)
+        reachable = sorted(node for node in seen if node != int(seed))
+        group = lookup.loc[reachable] if reachable else df.iloc[:0]
+        counts = group.role.value_counts().to_dict() if len(group) else {}
+        leaders = group.sort_values(["priority_score", "gid"], ascending=[False, True]).head(5)
+        row = {"seed_gid": int(seed),
+               "cluster_id": int(lookup.loc[seed, "cluster_id"]),
+               "reachable_nodes": int(len(reachable)),
+               "max_depth_reached": max(seen.values(), default=0),
+               "boundary_nodes": int(group.boundary.sum()) if len(group) else 0,
+               "attention_nodes": int((group.attention != "нет").sum()) if len(group) else 0,
+               "top_reachable_gids": ";".join(str(int(x)) for x in leaders.index)}
+        row.update({f"n_{role}": int(counts.get(role, 0)) for role in ROLE_ORDER})
+        rows.append(row)
+    return pd.DataFrame(rows, columns=columns)
+
+
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
                   risk_flags: pd.DataFrame, flows: pd.DataFrame,
@@ -690,7 +717,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   amount_bands: pd.DataFrame, roles: pd.DataFrame,
                   top_edges: pd.DataFrame, daily: pd.DataFrame,
                   boundary_queue: pd.DataFrame, cluster_roles: pd.DataFrame,
-                  timeline: pd.DataFrame, out: Path):
+                  seed_roles: pd.DataFrame, timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
@@ -765,6 +792,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     daily.to_csv(out / "daily_summary.csv", index=False)
     boundary_queue.to_csv(out / "boundary_review.csv", index=False)
     cluster_roles.to_csv(out / "cluster_roles.csv", index=False)
+    seed_roles.to_csv(out / "seed_role_reach.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
 
     timeline_by_gid = defaultdict(list)
@@ -818,7 +846,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "topEdges": top_edges.to_dict(orient="records"),
                "dailySummary": daily.to_dict(orient="records"),
                "boundaryReview": boundary_queue.to_dict(orient="records"),
-               "clusterRoles": cluster_roles.to_dict(orient="records")}
+               "clusterRoles": cluster_roles.to_dict(orient="records"),
+               "seedRoleReach": seed_roles.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     (out / "network.html").write_text(page, encoding="utf-8")
@@ -855,9 +884,10 @@ def main():
     daily = daily_summary(tx)
     boundary_queue = boundary_review(df)
     cluster_roles = cluster_role_matrix(df)
+    seed_roles = seed_role_reach(graph, df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                   seed_report, components, amount_bands, roles, top_edges,
-                  daily, boundary_queue, cluster_roles, timeline, args.out)
+                  daily, boundary_queue, cluster_roles, seed_roles, timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()
     print(f"Готово: {len(df)} узлов, {len(edges)} рёбер, {df.cluster_id.nunique()} кластеров")
