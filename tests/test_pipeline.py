@@ -181,6 +181,13 @@ class PipelineTest(unittest.TestCase):
         self.assertTrue(np.isclose(roles.share_nodes.sum(), 1.0, atol=.001))
         for role, count in self.nodes.role.value_counts().items():
             self.assertEqual(roles.loc[role, "n_nodes"], count)
+        top_edges = pd.read_csv(self.out / "top_edges.csv")
+        source_edges = pd.read_parquet(ROOT / "data" / "edges.parquet")
+        self.assertLessEqual(len(top_edges), 200)
+        self.assertEqual(top_edges["rank"].tolist(), list(range(1, len(top_edges) + 1)))
+        self.assertTrue(top_edges.sum_kzt.is_monotonic_decreasing)
+        self.assertTrue(np.isclose(top_edges.iloc[0].sum_kzt, source_edges.sum_kzt.max(), atol=.01))
+        self.assertTrue(set(zip(top_edges.src, top_edges.dst)).issubset(set(zip(source_edges.src, source_edges.dst))))
 
     def test_timeline_matches_transactions(self):
         timeline = pd.read_csv(self.out / "timeline.csv")
@@ -215,6 +222,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"components":[', html)
         self.assertIn('"amountBands":[', html)
         self.assertIn('"roleSummary":[', html)
+        self.assertIn('"topEdges":[', html)
         self.assertIn("<canvas", html)
 
     def test_outputs_are_identical_after_input_rows_are_shuffled(self):
@@ -237,7 +245,7 @@ class PipelineTest(unittest.TestCase):
                          "cycles.csv", "routes.csv", "resilience.csv", "data_gaps.csv",
                          "risk_flags.csv", "cluster_flows.csv", "seed_coverage.csv",
                          "components.csv", "amount_bands.csv", "role_summary.csv",
-                         "timeline.csv", "network.html"):
+                         "top_edges.csv", "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),

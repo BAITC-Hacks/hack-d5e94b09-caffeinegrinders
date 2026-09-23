@@ -596,12 +596,41 @@ def role_summary(df: pd.DataFrame):
     return pd.DataFrame(rows, columns=columns)
 
 
+def top_edge_summary(edges: pd.DataFrame, df: pd.DataFrame, limit: int = 200):
+    """Largest visible transfer pairs with endpoint roles for manual review."""
+    columns = ["rank", "src", "dst", "sum_kzt", "n_tx", "src_role", "dst_role",
+               "src_cluster", "dst_cluster", "src_seed", "dst_seed", "same_cluster"]
+    if edges.empty:
+        return pd.DataFrame(columns=columns)
+    meta = df.set_index("gid")
+    rows = []
+    top_edges = edges.sort_values(["sum_kzt", "src", "dst"], ascending=[False, True, True]).head(limit)
+    for rank, edge in enumerate(top_edges.itertuples(index=False), start=1):
+        src = meta.loc[edge.src]
+        dst = meta.loc[edge.dst]
+        src_cluster = int(src.cluster_id)
+        dst_cluster = int(dst.cluster_id)
+        rows.append({"rank": rank,
+                     "src": int(edge.src),
+                     "dst": int(edge.dst),
+                     "sum_kzt": round(float(edge.sum_kzt), 2),
+                     "n_tx": int(edge.n_tx),
+                     "src_role": src.role,
+                     "dst_role": dst.role,
+                     "src_cluster": src_cluster,
+                     "dst_cluster": dst_cluster,
+                     "src_seed": bool(src.is_seed),
+                     "dst_seed": bool(dst.is_seed),
+                     "same_cluster": src_cluster == dst_cluster})
+    return pd.DataFrame(rows, columns=columns)
+
+
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
                   risk_flags: pd.DataFrame, flows: pd.DataFrame,
                   seed_report: pd.DataFrame, components: pd.DataFrame,
                   amount_bands: pd.DataFrame, roles: pd.DataFrame,
-                  timeline: pd.DataFrame, out: Path):
+                  top_edges: pd.DataFrame, timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
@@ -672,6 +701,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     components.to_csv(out / "components.csv", index=False)
     amount_bands.to_csv(out / "amount_bands.csv", index=False)
     roles.to_csv(out / "role_summary.csv", index=False)
+    top_edges.to_csv(out / "top_edges.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
 
     timeline_by_gid = defaultdict(list)
@@ -721,7 +751,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "seedCoverage": seed_report.to_dict(orient="records"),
                "components": components.to_dict(orient="records"),
                "amountBands": amount_bands.to_dict(orient="records"),
-               "roleSummary": roles.to_dict(orient="records")}
+               "roleSummary": roles.to_dict(orient="records"),
+               "topEdges": top_edges.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     (out / "network.html").write_text(page, encoding="utf-8")
@@ -754,8 +785,10 @@ def main():
     components = component_summary(graph, df, edges)
     amount_bands = amount_band_summary(tx)
     roles = role_summary(df)
+    top_edges = top_edge_summary(edges, df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
-                  seed_report, components, amount_bands, roles, timeline, args.out)
+                  seed_report, components, amount_bands, roles, top_edges,
+                  timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()
     print(f"Готово: {len(df)} узлов, {len(edges)} рёбер, {df.cluster_id.nunique()} кластеров")
