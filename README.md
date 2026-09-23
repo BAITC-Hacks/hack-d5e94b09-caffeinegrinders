@@ -171,6 +171,12 @@ export OPENAI_MODEL=my-local-model
 В Windows: `.\.venv\Scripts\python.exe -m unittest discover -s tests -v`.
 Проверка переключения кластеров в интерфейсе (нужен Node.js): `node tests/test_viewer.cjs`.
 
+Готовый текстовый сценарий для 5-минутного показа:
+
+```bash
+.venv/bin/python demo.py --out out
+```
+
 Для сравнения двух пересчётов используйте:
 
 ```bash
