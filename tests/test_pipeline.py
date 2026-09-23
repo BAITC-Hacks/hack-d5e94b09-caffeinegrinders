@@ -212,6 +212,18 @@ class PipelineTest(unittest.TestCase):
             if lookup[edge.src] != lookup[edge.dst]:
                 expected += edge.sum_kzt
         self.assertTrue(np.isclose(flows.sum_kzt.sum(), expected, atol=.01))
+        cluster_flow_summary = pd.read_csv(self.out / "cluster_flow_summary.csv")
+        cluster_totals = self.clusters.set_index("cluster_id").sort_index()
+        summary = cluster_flow_summary.set_index("cluster_id").sort_index()
+        self.assertEqual(set(summary.index), set(cluster_totals.index))
+        self.assertEqual(cluster_flow_summary.n_nodes.sum(), len(self.nodes))
+        self.assertEqual(cluster_flow_summary.n_seed.sum(), int(self.nodes.is_seed.sum()))
+        self.assertTrue(np.isclose(cluster_flow_summary.internal_kzt.sum(),
+                                   self.clusters.sum_kzt_internal.sum(), atol=.01))
+        self.assertTrue(np.isclose(cluster_flow_summary.cross_in_kzt.sum(), flows.sum_kzt.sum(), atol=.01))
+        self.assertTrue(np.isclose(cluster_flow_summary.cross_out_kzt.sum(), flows.sum_kzt.sum(), atol=.01))
+        self.assertTrue(np.isclose(cluster_flow_summary.cross_net_kzt.sum(), 0.0, atol=.01))
+        self.assertTrue((summary.n_nodes == cluster_totals.n_nodes).all())
         seeds = pd.read_csv(self.out / "seed_coverage.csv")
         self.assertEqual(len(seeds), int(self.nodes.is_seed.sum()))
         self.assertTrue(seeds.max_depth_reached.between(0, 4).all())
@@ -399,6 +411,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"cycles":[', html)
         self.assertIn('"clusters":[', html)
         self.assertIn('"clusterFlows":[', html)
+        self.assertIn('"clusterFlowSummary":[', html)
         self.assertIn('"gaps":[', html)
         self.assertIn('"seedCoverage":[', html)
         self.assertIn('"seedComponents":[', html)
@@ -447,7 +460,7 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             for name in ("nodes_roles.csv", "clusters.csv", "top_nodes.csv",
                          "cycles.csv", "routes.csv", "resilience.csv", "data_gaps.csv",
-                         "risk_flags.csv", "cluster_flows.csv", "seed_coverage.csv",
+                         "risk_flags.csv", "cluster_flows.csv", "cluster_flow_summary.csv", "seed_coverage.csv",
                          "seed_components.csv", "components.csv", "component_roles.csv",
                          "component_attention.csv", "isolated_nodes.csv",
                          "amount_bands.csv", "role_summary.csv",

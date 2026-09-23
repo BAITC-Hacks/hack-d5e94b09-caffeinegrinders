@@ -681,6 +681,63 @@ def cluster_flows(df: pd.DataFrame, edges: pd.DataFrame):
                              ascending=[False, True, True]).reset_index(drop=True)
 
 
+def cluster_flow_summary(df: pd.DataFrame, edges: pd.DataFrame):
+    """Per-cluster internal and cross-cluster ingress/egress totals."""
+    columns = ["cluster_id", "n_nodes", "n_seed", "internal_kzt",
+               "cross_in_kzt", "cross_out_kzt", "cross_net_kzt",
+               "cross_in_edges", "cross_out_edges", "cross_in_tx", "cross_out_tx",
+               "top_in_clusters", "top_out_clusters"]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    cluster_of = dict(zip(df.gid, df.cluster_id))
+    stats = {}
+    for cid, group in df.groupby("cluster_id", sort=True):
+        stats[int(cid)] = {"cluster_id": int(cid), "n_nodes": int(len(group)),
+                           "n_seed": int(group.is_seed.sum()), "internal_kzt": 0.0,
+                           "cross_in_kzt": 0.0, "cross_out_kzt": 0.0,
+                           "cross_in_edges": 0, "cross_out_edges": 0,
+                           "cross_in_tx": 0, "cross_out_tx": 0,
+                           "in_clusters": defaultdict(float), "out_clusters": defaultdict(float)}
+    for edge in edges.itertuples(index=False):
+        src_cluster = int(cluster_of[edge.src])
+        dst_cluster = int(cluster_of[edge.dst])
+        amount = float(edge.sum_kzt)
+        if src_cluster == dst_cluster:
+            stats[src_cluster]["internal_kzt"] += amount
+            continue
+        src_stats = stats[src_cluster]
+        dst_stats = stats[dst_cluster]
+        src_stats["cross_out_kzt"] += amount
+        src_stats["cross_out_edges"] += 1
+        src_stats["cross_out_tx"] += int(edge.n_tx)
+        src_stats["out_clusters"][dst_cluster] += amount
+        dst_stats["cross_in_kzt"] += amount
+        dst_stats["cross_in_edges"] += 1
+        dst_stats["cross_in_tx"] += int(edge.n_tx)
+        dst_stats["in_clusters"][src_cluster] += amount
+    rows = []
+    for cid in sorted(stats):
+        item = stats[cid]
+        top_in = sorted(item["in_clusters"].items(), key=lambda x: (-x[1], x[0]))[:5]
+        top_out = sorted(item["out_clusters"].items(), key=lambda x: (-x[1], x[0]))[:5]
+        rows.append({"cluster_id": item["cluster_id"],
+                     "n_nodes": item["n_nodes"],
+                     "n_seed": item["n_seed"],
+                     "internal_kzt": round(float(item["internal_kzt"]), 2),
+                     "cross_in_kzt": round(float(item["cross_in_kzt"]), 2),
+                     "cross_out_kzt": round(float(item["cross_out_kzt"]), 2),
+                     "cross_net_kzt": round(float(item["cross_in_kzt"] - item["cross_out_kzt"]), 2),
+                     "cross_in_edges": int(item["cross_in_edges"]),
+                     "cross_out_edges": int(item["cross_out_edges"]),
+                     "cross_in_tx": int(item["cross_in_tx"]),
+                     "cross_out_tx": int(item["cross_out_tx"]),
+                     "top_in_clusters": ";".join(f"{int(other)}:{amount:.2f}" for other, amount in top_in),
+                     "top_out_clusters": ";".join(f"{int(other)}:{amount:.2f}" for other, amount in top_out)})
+    return pd.DataFrame(rows, columns=columns).sort_values(
+        ["cross_in_kzt", "cross_out_kzt", "cluster_id"], ascending=[False, False, True]
+    ).reset_index(drop=True)
+
+
 def seed_coverage(graph: nx.DiGraph, df: pd.DataFrame):
     """Per-seed reachability and direct outgoing footprint."""
     rows = []
@@ -1202,6 +1259,7 @@ def depth_flows(edges: pd.DataFrame, df: pd.DataFrame):
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
                   risk_flags: pd.DataFrame, flows: pd.DataFrame,
+                  cluster_flow_rows: pd.DataFrame,
                   seed_report: pd.DataFrame, seed_components: pd.DataFrame,
                   components: pd.DataFrame, component_roles: pd.DataFrame,
                   component_attention: pd.DataFrame,
@@ -1284,6 +1342,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     gaps.to_csv(out / "data_gaps.csv", index=False)
     risk_flags.to_csv(out / "risk_flags.csv", index=False)
     flows.to_csv(out / "cluster_flows.csv", index=False)
+    cluster_flow_rows.to_csv(out / "cluster_flow_summary.csv", index=False)
     seed_report.to_csv(out / "seed_coverage.csv", index=False)
     seed_components.to_csv(out / "seed_components.csv", index=False)
     components.to_csv(out / "components.csv", index=False)
@@ -1354,6 +1413,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "cycles": cycles.to_dict(orient="records"),
                "routes": routes.to_dict(orient="records"),
                "clusterFlows": flows.to_dict(orient="records"),
+               "clusterFlowSummary": cluster_flow_rows.to_dict(orient="records"),
                "clusters": cluster_payload,
                "gaps": gaps.to_dict(orient="records"),
                "riskFlags": risk_flags.to_dict(orient="records"),
@@ -1412,6 +1472,7 @@ def main():
     gaps = data_gaps(df, graph)
     risk_flags = risk_flags_summary(df)
     flows = cluster_flows(df, edges)
+    cluster_flow_rows = cluster_flow_summary(df, edges)
     seed_report = seed_coverage(graph, df)
     seed_components = seed_component_summary(graph, df, edges)
     components = component_summary(graph, df, edges)
@@ -1440,6 +1501,7 @@ def main():
     depth_flow_rows = depth_flows(edges, df)
     counterparties = top_counterparties(edges, df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
+                  cluster_flow_rows,
                   seed_report, seed_components, components, component_roles,
                   component_attention, isolated_nodes, amount_bands, roles, top_edges,
                   daily, boundary_queue, cluster_roles, seed_roles, seed_overlap_rows,
