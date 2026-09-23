@@ -574,6 +574,31 @@ def cluster_attention_summary(df: pd.DataFrame, attention_rows: pd.DataFrame):
     ).reset_index(drop=True)
 
 
+def role_attention_summary(df: pd.DataFrame, attention_rows: pd.DataFrame):
+    """Optional attention flags aggregated by structural role."""
+    columns = ["role", "flag", "n_nodes", "share_role", "avg_priority_score",
+               "top_gids", "meaning"]
+    if attention_rows.empty:
+        return pd.DataFrame(columns=columns)
+    role_sizes = df.groupby("role").size().to_dict()
+    rows = []
+    for (role, flag), group in attention_rows.groupby(["role", "flag"], sort=True):
+        leaders = group.sort_values(["priority_score", "gid"], ascending=[False, True]).head(5)
+        n_nodes = group.gid.nunique()
+        rows.append({"role": role,
+                     "flag": flag,
+                     "n_nodes": int(n_nodes),
+                     "share_role": round(n_nodes / role_sizes[role], 4),
+                     "avg_priority_score": round(float(group.priority_score.mean()), 6),
+                     "top_gids": ";".join(str(int(x)) for x in leaders.gid),
+                     "meaning": group.meaning.iloc[0]})
+    result = pd.DataFrame(rows, columns=columns)
+    result["_role_order"] = result.role.map({role: idx for idx, role in enumerate(ROLE_ORDER)})
+    return result.sort_values(
+        ["_role_order", "n_nodes", "flag"], ascending=[True, False, True]
+    ).drop(columns="_role_order").reset_index(drop=True)
+
+
 def cluster_flows(df: pd.DataFrame, edges: pd.DataFrame):
     """Aggregated transfers between clusters for ingress/egress review."""
     cluster_of = dict(zip(df.gid, df.cluster_id))
@@ -1127,6 +1152,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   boundary_queue: pd.DataFrame, cluster_roles: pd.DataFrame,
                   seed_roles: pd.DataFrame, seed_overlap_rows: pd.DataFrame,
                   attention_rows: pd.DataFrame, cluster_attention: pd.DataFrame,
+                  role_attention: pd.DataFrame,
                   route_nodes: pd.DataFrame, cycle_nodes: pd.DataFrame,
                   depths: pd.DataFrame, cluster_depths: pd.DataFrame,
                   role_depths: pd.DataFrame, role_flow_rows: pd.DataFrame,
@@ -1214,6 +1240,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     seed_overlap_rows.to_csv(out / "seed_overlap.csv", index=False)
     attention_rows.to_csv(out / "attention_examples.csv", index=False)
     cluster_attention.to_csv(out / "cluster_attention.csv", index=False)
+    role_attention.to_csv(out / "role_attention.csv", index=False)
     route_nodes.to_csv(out / "route_nodes.csv", index=False)
     cycle_nodes.to_csv(out / "cycle_nodes.csv", index=False)
     depths.to_csv(out / "depth_summary.csv", index=False)
@@ -1284,6 +1311,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "seedOverlap": seed_overlap_rows.to_dict(orient="records"),
                "attentionExamples": attention_rows.to_dict(orient="records"),
                "clusterAttention": cluster_attention.to_dict(orient="records"),
+               "roleAttention": role_attention.to_dict(orient="records"),
                "routeNodes": route_nodes.to_dict(orient="records"),
                "cycleNodes": cycle_nodes.to_dict(orient="records"),
                "depthSummary": depths.to_dict(orient="records"),
@@ -1336,6 +1364,7 @@ def main():
     attention_rows = attention_examples(df)
     component_attention = component_attention_summary(graph, df, attention_rows)
     cluster_attention = cluster_attention_summary(df, attention_rows)
+    role_attention = role_attention_summary(df, attention_rows)
     route_nodes = route_node_membership(routes, df)
     cycle_nodes = cycle_node_membership(cycles, df)
     depths = depth_summary(df)
@@ -1348,7 +1377,7 @@ def main():
                   seed_report, seed_components, components, component_roles,
                   component_attention, isolated_nodes, amount_bands, roles, top_edges,
                   daily, boundary_queue, cluster_roles, seed_roles, seed_overlap_rows,
-                  attention_rows, cluster_attention,
+                  attention_rows, cluster_attention, role_attention,
                   route_nodes, cycle_nodes, depths, cluster_depths, role_depths,
                   role_flow_rows, depth_flow_rows, counterparties,
                   timeline, args.out)
