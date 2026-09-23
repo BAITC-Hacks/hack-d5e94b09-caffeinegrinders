@@ -7,11 +7,21 @@ const vm = require('node:vm');
 
 const context = new Proxy({}, { get: () => () => {} });
 function element() {
+  const listeners = new Map();
   return {
     value: '', textContent: '', innerHTML: '', width: 900, height: 600,
     checked: false,
     classList: { toggle() {} }, appendChild() {}, append() {},
-    addEventListener() {}, setCustomValidity() {}, reportValidity() {},
+    addEventListener(type, listener) {
+      if (!listeners.has(type)) listeners.set(type, []);
+      listeners.get(type).push(listener);
+    },
+    dispatchEvent(event) {
+      for (const listener of listeners.get(event.type) || []) {
+        listener({ ...event, target: this });
+      }
+    },
+    setCustomValidity() {}, reportValidity() {},
     getContext: () => context,
     getBoundingClientRect: () => ({ width: 900, height: 600, left: 0, top: 0 }),
   };
@@ -61,3 +71,23 @@ vm.runInContext("select('1');", sandbox);
 assert.equal(vm.runInContext("document.getElementById('flaggedOnly').checked", sandbox), false);
 assert.equal(vm.runInContext('selected', sandbox), '1');
 console.log('Viewer cluster regression passed');
+
+// Changing the actual input must clear a now-hidden selection and its edges.
+// The inclusive score boundary must restore the nodes without a stale selection.
+const minScore = elements.get('minScore');
+minScore.value = '0.51';
+minScore.dispatchEvent({ type: 'input' });
+assert.equal(vm.runInContext('selected', sandbox), null);
+assert.equal(vm.runInContext('mode', sandbox), 'overview');
+assert.equal(vm.runInContext('visible.length', sandbox), 0);
+assert.equal(vm.runInContext('shownEdges.length', sandbox), 0);
+assert.equal(elements.get('search').value, '');
+assert.equal(elements.get('card').textContent, 'Выберите узел с текущими фильтрами.');
+assert.equal(elements.get('connections').textContent, 'Выберите узел.');
+minScore.value = '0.5';
+minScore.dispatchEvent({ type: 'input' });
+assert.equal(vm.runInContext("visible.map(n => n.gid).join(',')", sandbox), '1,2,3');
+assert.equal(vm.runInContext('shownEdges.length', sandbox), 2);
+assert.equal(vm.runInContext('selected', sandbox), null);
+assert.equal(vm.runInContext('mode', sandbox), 'overview');
+console.log('Viewer minimum-priority filter regression passed');
