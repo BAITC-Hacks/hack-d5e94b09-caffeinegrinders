@@ -24,6 +24,13 @@ REMOVAL_STEPS = (0, 5, 10, 20, 50, 100)
 RELAY_MAX_LAG_DAYS = 2
 RELAY_SHARE = (.5, 1.05)
 STABLE_ROUTE_DAYS = 2
+AMOUNT_BANDS = [
+    (5_000, 10_000, "5k-10k"),
+    (10_000, 50_000, "10k-50k"),
+    (50_000, 100_000, "50k-100k"),
+    (100_000, 500_000, "100k-500k"),
+    (500_000, math.inf, "500k+"),
+]
 
 
 def load_data(path: Path):
@@ -544,11 +551,29 @@ def component_summary(graph: nx.DiGraph, df: pd.DataFrame, edges: pd.DataFrame):
     return pd.DataFrame(rows)
 
 
+def amount_band_summary(tx: pd.DataFrame):
+    """Transaction amount distribution in fixed, explainable KZT bands."""
+    columns = ["amount_band", "n_tx", "sum_kzt", "share_tx", "share_kzt"]
+    if tx.empty:
+        return pd.DataFrame(columns=columns)
+    total_tx = len(tx)
+    total_kzt = float(tx.sum_kzt.sum())
+    rows = []
+    for low, high, label in AMOUNT_BANDS:
+        mask = (tx.sum_kzt >= low) & (tx.sum_kzt < high)
+        amount = float(tx.loc[mask, "sum_kzt"].sum())
+        rows.append({"amount_band": label, "n_tx": int(mask.sum()),
+                     "sum_kzt": round(amount, 2),
+                     "share_tx": round(float(mask.sum()) / total_tx, 4),
+                     "share_kzt": round(amount / total_kzt, 4) if total_kzt else 0.0})
+    return pd.DataFrame(rows, columns=columns)
+
+
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
                   risk_flags: pd.DataFrame, flows: pd.DataFrame,
                   seed_report: pd.DataFrame, components: pd.DataFrame,
-                  timeline: pd.DataFrame, out: Path):
+                  amount_bands: pd.DataFrame, timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
@@ -617,6 +642,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     flows.to_csv(out / "cluster_flows.csv", index=False)
     seed_report.to_csv(out / "seed_coverage.csv", index=False)
     components.to_csv(out / "components.csv", index=False)
+    amount_bands.to_csv(out / "amount_bands.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
 
     timeline_by_gid = defaultdict(list)
@@ -664,13 +690,14 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "gaps": gaps.to_dict(orient="records"),
                "riskFlags": risk_flags.to_dict(orient="records"),
                "seedCoverage": seed_report.to_dict(orient="records"),
-               "components": components.to_dict(orient="records")}
+               "components": components.to_dict(orient="records"),
+               "amountBands": amount_bands.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     (out / "network.html").write_text(page, encoding="utf-8")
 
 
-def build_model(data: Path):
+def build_model(data: Path, include_transactions: bool = False):
     """Graph, per-node roles and metrics, and cycles; shared by the CLI and the assistant."""
     nodes, edges, tx = load_data(data)
     graph, df = graph_features(nodes, edges, tx)
@@ -678,6 +705,8 @@ def build_model(data: Path):
     df, routes = find_routes(tx, df)
     df = flag_attention(rank_nodes(score_roles(assign_clusters(graph, df, edges))))
     timeline = daily_timeline(tx)
+    if include_transactions:
+        return nodes, edges, graph, df, cycles, routes, timeline, tx
     return nodes, edges, graph, df, cycles, routes, timeline
 
 
@@ -686,15 +715,16 @@ def main():
     parser.add_argument("--data", type=Path, default=ROOT / "data")
     parser.add_argument("--out", type=Path, default=ROOT / "out")
     args = parser.parse_args()
-    nodes, edges, graph, df, cycles, routes, timeline = build_model(args.data)
+    nodes, edges, graph, df, cycles, routes, timeline, tx = build_model(args.data, include_transactions=True)
     resilience = network_resilience(graph, df)
     gaps = data_gaps(df, graph)
     risk_flags = risk_flags_summary(df)
     flows = cluster_flows(df, edges)
     seed_report = seed_coverage(graph, df)
     components = component_summary(graph, df, edges)
+    amount_bands = amount_band_summary(tx)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
-                  seed_report, components, timeline, args.out)
+                  seed_report, components, amount_bands, timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()
     print(f"Готово: {len(df)} узлов, {len(edges)} рёбер, {df.cluster_id.nunique()} кластеров")
