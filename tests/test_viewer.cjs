@@ -43,9 +43,11 @@ const nodes = [1, 2, 3].map(id => ({
 }));
 const edges = [{ src: '1', dst: '2', amount: 100, count: 1 },
   { src: '2', dst: '3', amount: 100, count: 1 }];
+const routes = [{ route_id: 1, kind: 'repeated', hops: 2, path: '1 → 2 → 3',
+  relay_days: 2, forwarded_kzt: 100, first_date: '2026-07-01', last_date: '2026-07-02', n_seed: 1 }];
 const html = fs.readFileSync(path.join(__dirname, '..', 'viewer.html'), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1]
-  .replace('/* GRAPH_DATA */ null', JSON.stringify({ nodes, edges }));
+  .replace('/* GRAPH_DATA */ null', JSON.stringify({ nodes, edges, routes }));
 vm.runInContext(script, sandbox);
 vm.runInContext("select('1'); setMode('two');", sandbox);
 elements.get('cluster').onchange({ target: { value: '2' } });
@@ -75,6 +77,7 @@ assert.match(report, /## 1/);
 assert.match(report, /Evidence: test/);
 assert.match(report, /Заметка аналитика: watch/);
 assert.match(vm.runInContext("dataRequestsForNode(byId.get('3')).join(';')", sandbox), /продлить обход/);
+assert.equal(vm.runInContext("routesForNode('2')[0].path", sandbox), '1 → 2 → 3');
 elements.get('clearCase').onclick();
 assert.equal(vm.runInContext('caseState.gids.length', sandbox), 0);
 console.log('Viewer cluster regression passed');
