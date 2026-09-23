@@ -750,6 +750,30 @@ def seed_role_reach(graph: nx.DiGraph, df: pd.DataFrame):
     return pd.DataFrame(rows, columns=columns)
 
 
+def route_node_membership(routes: pd.DataFrame, df: pd.DataFrame):
+    """Explode route paths into one row per route node and position."""
+    columns = ["route_id", "kind", "position", "gid", "role", "cluster_id",
+               "is_seed", "priority_score", "path"]
+    if routes.empty:
+        return pd.DataFrame(columns=columns)
+    lookup = df.set_index("gid")
+    rows = []
+    for route in routes.itertuples(index=False):
+        path = [int(part.strip()) for part in route.path.split("→")]
+        for position, gid in enumerate(path, start=1):
+            meta = lookup.loc[gid]
+            rows.append({"route_id": int(route.route_id),
+                         "kind": route.kind,
+                         "position": position,
+                         "gid": gid,
+                         "role": meta.role,
+                         "cluster_id": int(meta.cluster_id),
+                         "is_seed": bool(meta.is_seed),
+                         "priority_score": round(float(meta.priority_score), 6),
+                         "path": route.path})
+    return pd.DataFrame(rows, columns=columns)
+
+
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
                   risk_flags: pd.DataFrame, flows: pd.DataFrame,
@@ -758,7 +782,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   top_edges: pd.DataFrame, daily: pd.DataFrame,
                   boundary_queue: pd.DataFrame, cluster_roles: pd.DataFrame,
                   seed_roles: pd.DataFrame, attention_rows: pd.DataFrame,
-                  timeline: pd.DataFrame, out: Path):
+                  route_nodes: pd.DataFrame, timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
@@ -835,6 +859,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     cluster_roles.to_csv(out / "cluster_roles.csv", index=False)
     seed_roles.to_csv(out / "seed_role_reach.csv", index=False)
     attention_rows.to_csv(out / "attention_examples.csv", index=False)
+    route_nodes.to_csv(out / "route_nodes.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
 
     timeline_by_gid = defaultdict(list)
@@ -890,7 +915,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "boundaryReview": boundary_queue.to_dict(orient="records"),
                "clusterRoles": cluster_roles.to_dict(orient="records"),
                "seedRoleReach": seed_roles.to_dict(orient="records"),
-               "attentionExamples": attention_rows.to_dict(orient="records")}
+               "attentionExamples": attention_rows.to_dict(orient="records"),
+               "routeNodes": route_nodes.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     (out / "network.html").write_text(page, encoding="utf-8")
@@ -929,10 +955,11 @@ def main():
     cluster_roles = cluster_role_matrix(df)
     seed_roles = seed_role_reach(graph, df)
     attention_rows = attention_examples(df)
+    route_nodes = route_node_membership(routes, df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                   seed_report, components, amount_bands, roles, top_edges,
                   daily, boundary_queue, cluster_roles, seed_roles, attention_rows,
-                  timeline, args.out)
+                  route_nodes, timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()
     print(f"Готово: {len(df)} узлов, {len(edges)} рёбер, {df.cluster_id.nunique()} кластеров")

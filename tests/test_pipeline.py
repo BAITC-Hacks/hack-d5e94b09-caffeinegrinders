@@ -136,6 +136,13 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(lookup.relay_routes[gid], count)
         for gid, count in inner.items():
             self.assertEqual(lookup.chain_transits[gid], count)
+        route_nodes = pd.read_csv(self.out / "route_nodes.csv")
+        self.assertEqual(route_nodes.route_id.nunique(), len(routes))
+        by_route = route_nodes.groupby("route_id").size()
+        for row in routes.set_index("route_id").itertuples():
+            self.assertEqual(by_route.loc[row.Index], row.hops + 1)
+        self.assertTrue(set(route_nodes.gid).issubset(set(self.nodes.gid)))
+        self.assertTrue(route_nodes.position.ge(1).all())
 
     def test_resilience_and_gaps(self):
         resilience = pd.read_csv(self.out / "resilience.csv")
@@ -264,6 +271,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"clusterRoles":[', html)
         self.assertIn('"seedRoleReach":[', html)
         self.assertIn('"attentionExamples":[', html)
+        self.assertIn('"routeNodes":[', html)
         self.assertIn("<canvas", html)
 
     def test_outputs_are_identical_after_input_rows_are_shuffled(self):
@@ -288,7 +296,7 @@ class PipelineTest(unittest.TestCase):
                          "components.csv", "amount_bands.csv", "role_summary.csv",
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
                          "cluster_roles.csv", "seed_role_reach.csv", "attention_examples.csv",
-                         "timeline.csv", "network.html"):
+                         "route_nodes.csv", "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),
