@@ -27,7 +27,8 @@ def check_viewer(path: Path) -> dict:
                 "gaps", "riskFlags", "seedCoverage", "seedComponents", "components",
                 "componentRoles", "componentAttention", "isolatedNodes", "amountBands",
                 "roleSummary", "topEdges", "dailySummary", "boundaryReview",
-                "clusterRoles", "seedRoleReach", "seedOverlap", "attentionExamples", "clusterAttention",
+                "clusterRoles", "seedRoleReach", "seedOverlap", "seedAttention",
+                "attentionExamples", "clusterAttention",
                 "roleAttention", "depthAttention", "attentionOverlap", "routeNodes",
                 "cycleNodes", "depthSummary", "clusterDepths", "roleDepths",
                 "roleFlows", "depthFlows", "topCounterparties"}
