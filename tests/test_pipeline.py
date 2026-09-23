@@ -154,6 +154,13 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(flags.loc["cycle", "n_nodes"], (self.nodes.cycles > 0).sum())
         self.assertEqual(flags.loc["relay_route", "n_nodes"], (self.nodes.relay_routes > 0).sum())
         self.assertTrue(flags.share.between(0, 1).all())
+        flows = pd.read_csv(self.out / "cluster_flows.csv")
+        lookup = dict(zip(self.nodes.gid, self.nodes.cluster_id))
+        expected = 0.0
+        for edge in pd.read_parquet(ROOT / "data" / "edges.parquet").itertuples(index=False):
+            if lookup[edge.src] != lookup[edge.dst]:
+                expected += edge.sum_kzt
+        self.assertTrue(np.isclose(flows.sum_kzt.sum(), expected, atol=.01))
 
     def test_timeline_matches_transactions(self):
         timeline = pd.read_csv(self.out / "timeline.csv")
@@ -181,6 +188,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn(str(self.top.iloc[0].gid), html)
         self.assertIn('"timeline":[', html)
         self.assertIn('"clusters":[', html)
+        self.assertIn('"clusterFlows":[', html)
         self.assertIn('"gaps":[', html)
         self.assertIn("<canvas", html)
 
@@ -202,7 +210,7 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             for name in ("nodes_roles.csv", "clusters.csv", "top_nodes.csv",
                          "cycles.csv", "routes.csv", "resilience.csv", "data_gaps.csv",
-                         "risk_flags.csv", "timeline.csv", "network.html"):
+                         "risk_flags.csv", "cluster_flows.csv", "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),
