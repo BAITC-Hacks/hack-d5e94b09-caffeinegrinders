@@ -11,7 +11,7 @@ from run import (
     find_cycles, find_routes, flag_attention, network_resilience, data_gaps,
     risk_flags_summary, attention_examples, cluster_attention_summary,
     cluster_flows, seed_coverage, component_summary,
-    seed_component_summary, component_role_matrix,
+    seed_component_summary, component_role_matrix, component_attention_summary,
     amount_band_summary, role_summary, top_edge_summary, daily_summary,
     boundary_review, cluster_role_matrix, seed_role_reach, route_node_membership,
     cycle_node_membership, depth_summary, cluster_depth_matrix, role_depth_matrix,
@@ -106,6 +106,7 @@ class ValidationTest(unittest.TestCase):
         cluster_roles = cluster_role_matrix(df)
         seed_roles = seed_role_reach(graph, df)
         attention_rows = attention_examples(df)
+        component_attention = component_attention_summary(graph, df, attention_rows)
         cluster_attention = cluster_attention_summary(df, attention_rows)
         route_nodes = route_node_membership(routes, df)
         cycle_nodes = cycle_node_membership(cycles, df)
@@ -116,7 +117,7 @@ class ValidationTest(unittest.TestCase):
         timeline = daily_timeline(tx)
         write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                       seed_report, seed_components, components, component_roles,
-                      amount_bands, roles, top_edges,
+                      component_attention, amount_bands, roles, top_edges,
                       daily, boundary_queue, cluster_roles, seed_roles, attention_rows, cluster_attention,
                       route_nodes, cycle_nodes, depths, cluster_depths, role_depths, counterparties,
                       timeline, self.path / "out")
@@ -131,6 +132,7 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(len(pd.read_csv(self.path / "out" / "seed_components.csv")), 1)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "components.csv")), 2)
         self.assertEqual(pd.read_csv(self.path / "out" / "component_roles.csv").n_nodes.sum(), 2)
+        self.assertTrue(pd.read_csv(self.path / "out" / "component_attention.csv").empty)
         self.assertTrue(pd.read_csv(self.path / "out" / "amount_bands.csv").empty)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "role_summary.csv")), 6)
         self.assertTrue(pd.read_csv(self.path / "out" / "top_edges.csv").empty)

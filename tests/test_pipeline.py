@@ -199,6 +199,11 @@ class PipelineTest(unittest.TestCase):
         expected_by_component = components.set_index("component_id").n_nodes.sort_index()
         self.assertEqual(by_component_role.to_dict(), expected_by_component.to_dict())
         self.assertTrue(component_roles.share_component.between(0, 1).all())
+        component_attention = pd.read_csv(self.out / "component_attention.csv")
+        component_sizes = components.set_index("component_id").n_nodes
+        for row in component_attention.itertuples(index=False):
+            self.assertLessEqual(row.n_nodes, component_sizes.loc[row.component_id])
+        self.assertTrue(component_attention.share_component.between(0, 1).all())
         seed_components = pd.read_csv(self.out / "seed_components.csv")
         self.assertEqual(len(seed_components), int(self.nodes.is_seed.sum()))
         self.assertTrue(set(seed_components.component_id).issubset(set(components.component_id)))
@@ -320,6 +325,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"seedComponents":[', html)
         self.assertIn('"components":[', html)
         self.assertIn('"componentRoles":[', html)
+        self.assertIn('"componentAttention":[', html)
         self.assertIn('"amountBands":[', html)
         self.assertIn('"roleSummary":[', html)
         self.assertIn('"topEdges":[', html)
@@ -357,6 +363,7 @@ class PipelineTest(unittest.TestCase):
                          "cycles.csv", "routes.csv", "resilience.csv", "data_gaps.csv",
                          "risk_flags.csv", "cluster_flows.csv", "seed_coverage.csv",
                          "seed_components.csv", "components.csv", "component_roles.csv",
+                         "component_attention.csv",
                          "amount_bands.csv", "role_summary.csv",
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
                          "cluster_roles.csv", "seed_role_reach.csv", "attention_examples.csv",
