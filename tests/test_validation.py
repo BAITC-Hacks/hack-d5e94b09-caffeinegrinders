@@ -10,7 +10,7 @@ from run import (
     load_data, graph_features, assign_clusters, score_roles, rank_nodes,
     find_cycles, find_routes, flag_attention, network_resilience, data_gaps,
     risk_flags_summary, attention_examples, cluster_flows, seed_coverage, component_summary,
-    amount_band_summary, role_summary, top_edge_summary, daily_summary,
+    seed_component_summary, amount_band_summary, role_summary, top_edge_summary, daily_summary,
     boundary_review, cluster_role_matrix, seed_role_reach, route_node_membership,
     cycle_node_membership, depth_summary, cluster_depth_matrix, write_outputs, daily_timeline,
     top_counterparties,
@@ -93,6 +93,7 @@ class ValidationTest(unittest.TestCase):
         risk_flags = risk_flags_summary(df)
         flows = cluster_flows(df, edges)
         seed_report = seed_coverage(graph, df)
+        seed_components = seed_component_summary(graph, df, edges)
         components = component_summary(graph, df, edges)
         amount_bands = amount_band_summary(tx)
         roles = role_summary(df)
@@ -109,7 +110,7 @@ class ValidationTest(unittest.TestCase):
         counterparties = top_counterparties(edges, df)
         timeline = daily_timeline(tx)
         write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
-                      seed_report, components, amount_bands, roles, top_edges,
+                      seed_report, seed_components, components, amount_bands, roles, top_edges,
                       daily, boundary_queue, cluster_roles, seed_roles, attention_rows,
                       route_nodes, cycle_nodes, depths, cluster_depths, counterparties,
                       timeline, self.path / "out")
@@ -121,6 +122,7 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(len(pd.read_csv(self.path / "out" / "risk_flags.csv")), 8)
         self.assertTrue(pd.read_csv(self.path / "out" / "cluster_flows.csv").empty)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "seed_coverage.csv")), 1)
+        self.assertEqual(len(pd.read_csv(self.path / "out" / "seed_components.csv")), 1)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "components.csv")), 2)
         self.assertTrue(pd.read_csv(self.path / "out" / "amount_bands.csv").empty)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "role_summary.csv")), 6)

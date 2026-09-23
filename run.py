@@ -611,6 +611,42 @@ def component_summary(graph: nx.DiGraph, df: pd.DataFrame, edges: pd.DataFrame):
     return pd.DataFrame(rows)
 
 
+def seed_component_summary(graph: nx.DiGraph, df: pd.DataFrame, edges: pd.DataFrame):
+    """Map every seed to its weak component and local visible footprint."""
+    columns = ["seed_gid", "component_id", "cluster_id", "component_nodes",
+               "component_seed", "component_internal_kzt", "component_edges",
+               "reachable_nodes", "max_depth_reached"]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    components = sorted(nx.weakly_connected_components(graph), key=lambda c: (-len(c), min(c)))
+    component_id = {int(gid): idx for idx, members in enumerate(components, start=1) for gid in members}
+    component_size = {idx: len(members) for idx, members in enumerate(components, start=1)}
+    seeds_by_component = df[df.is_seed].groupby(df.gid.map(component_id)).size().to_dict()
+    internal = defaultdict(float)
+    edge_counts = defaultdict(int)
+    for edge in edges.itertuples(index=False):
+        cid = component_id[int(edge.src)]
+        if cid == component_id[int(edge.dst)]:
+            internal[cid] += float(edge.sum_kzt)
+            edge_counts[cid] += 1
+    lookup = df.set_index("gid")
+    rows = []
+    for seed in df.loc[df.is_seed, "gid"].sort_values():
+        seed = int(seed)
+        cid = component_id[seed]
+        seen = nx.single_source_shortest_path_length(graph, seed, cutoff=4)
+        rows.append({"seed_gid": seed,
+                     "component_id": int(cid),
+                     "cluster_id": int(lookup.loc[seed, "cluster_id"]),
+                     "component_nodes": int(component_size[cid]),
+                     "component_seed": int(seeds_by_component.get(cid, 0)),
+                     "component_internal_kzt": round(float(internal[cid]), 2),
+                     "component_edges": int(edge_counts[cid]),
+                     "reachable_nodes": len(seen) - 1,
+                     "max_depth_reached": max(seen.values(), default=0)})
+    return pd.DataFrame(rows, columns=columns)
+
+
 def amount_band_summary(tx: pd.DataFrame):
     """Transaction amount distribution in fixed, explainable KZT bands."""
     columns = ["amount_band", "n_tx", "sum_kzt", "share_tx", "share_kzt"]
@@ -883,7 +919,8 @@ def top_counterparties(edges: pd.DataFrame, df: pd.DataFrame, per_node: int = 3)
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
                   risk_flags: pd.DataFrame, flows: pd.DataFrame,
-                  seed_report: pd.DataFrame, components: pd.DataFrame,
+                  seed_report: pd.DataFrame, seed_components: pd.DataFrame,
+                  components: pd.DataFrame,
                   amount_bands: pd.DataFrame, roles: pd.DataFrame,
                   top_edges: pd.DataFrame, daily: pd.DataFrame,
                   boundary_queue: pd.DataFrame, cluster_roles: pd.DataFrame,
@@ -958,6 +995,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     risk_flags.to_csv(out / "risk_flags.csv", index=False)
     flows.to_csv(out / "cluster_flows.csv", index=False)
     seed_report.to_csv(out / "seed_coverage.csv", index=False)
+    seed_components.to_csv(out / "seed_components.csv", index=False)
     components.to_csv(out / "components.csv", index=False)
     amount_bands.to_csv(out / "amount_bands.csv", index=False)
     roles.to_csv(out / "role_summary.csv", index=False)
@@ -1019,6 +1057,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "gaps": gaps.to_dict(orient="records"),
                "riskFlags": risk_flags.to_dict(orient="records"),
                "seedCoverage": seed_report.to_dict(orient="records"),
+               "seedComponents": seed_components.to_dict(orient="records"),
                "components": components.to_dict(orient="records"),
                "amountBands": amount_bands.to_dict(orient="records"),
                "roleSummary": roles.to_dict(orient="records"),
@@ -1062,6 +1101,7 @@ def main():
     risk_flags = risk_flags_summary(df)
     flows = cluster_flows(df, edges)
     seed_report = seed_coverage(graph, df)
+    seed_components = seed_component_summary(graph, df, edges)
     components = component_summary(graph, df, edges)
     amount_bands = amount_band_summary(tx)
     roles = role_summary(df)
@@ -1077,7 +1117,7 @@ def main():
     cluster_depths = cluster_depth_matrix(df)
     counterparties = top_counterparties(edges, df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
-                  seed_report, components, amount_bands, roles, top_edges,
+                  seed_report, seed_components, components, amount_bands, roles, top_edges,
                   daily, boundary_queue, cluster_roles, seed_roles, attention_rows,
                   route_nodes, cycle_nodes, depths, cluster_depths, counterparties,
                   timeline, args.out)
