@@ -204,6 +204,10 @@ class PipelineTest(unittest.TestCase):
         for row in component_attention.itertuples(index=False):
             self.assertLessEqual(row.n_nodes, component_sizes.loc[row.component_id])
         self.assertTrue(component_attention.share_component.between(0, 1).all())
+        isolated = pd.read_csv(self.out / "isolated_nodes.csv")
+        expected_isolated = self.nodes[(self.nodes.in_deg == 0) & (self.nodes.out_deg == 0)]
+        self.assertEqual(set(isolated.gid), set(expected_isolated.gid))
+        self.assertTrue(set(isolated.component_id).issubset(set(components.component_id)))
         seed_components = pd.read_csv(self.out / "seed_components.csv")
         self.assertEqual(len(seed_components), int(self.nodes.is_seed.sum()))
         self.assertTrue(set(seed_components.component_id).issubset(set(components.component_id)))
@@ -326,6 +330,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"components":[', html)
         self.assertIn('"componentRoles":[', html)
         self.assertIn('"componentAttention":[', html)
+        self.assertIn('"isolatedNodes":[', html)
         self.assertIn('"amountBands":[', html)
         self.assertIn('"roleSummary":[', html)
         self.assertIn('"topEdges":[', html)
@@ -363,7 +368,7 @@ class PipelineTest(unittest.TestCase):
                          "cycles.csv", "routes.csv", "resilience.csv", "data_gaps.csv",
                          "risk_flags.csv", "cluster_flows.csv", "seed_coverage.csv",
                          "seed_components.csv", "components.csv", "component_roles.csv",
-                         "component_attention.csv",
+                         "component_attention.csv", "isolated_nodes.csv",
                          "amount_bands.csv", "role_summary.csv",
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
                          "cluster_roles.csv", "seed_role_reach.csv", "attention_examples.csv",

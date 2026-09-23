@@ -724,6 +724,20 @@ def component_attention_summary(graph: nx.DiGraph, df: pd.DataFrame, attention_r
     ).reset_index(drop=True)
 
 
+def isolated_nodes_report(graph: nx.DiGraph, df: pd.DataFrame):
+    """Nodes with no visible incoming or outgoing edges."""
+    columns = ["gid", "depth", "is_seed", "role", "cluster_id", "component_id",
+               "priority_score", "evidence", "attention"]
+    isolated = df[(df.in_deg == 0) & (df.out_deg == 0)].copy()
+    if isolated.empty:
+        return pd.DataFrame(columns=columns)
+    components = sorted(nx.weakly_connected_components(graph), key=lambda c: (-len(c), min(c)))
+    component_id = {int(gid): idx for idx, members in enumerate(components, start=1) for gid in members}
+    isolated["component_id"] = isolated.gid.map(component_id).astype(int)
+    isolated = isolated.sort_values(["is_seed", "priority_score", "gid"], ascending=[False, False, True])
+    return isolated[columns].reset_index(drop=True)
+
+
 def amount_band_summary(tx: pd.DataFrame):
     """Transaction amount distribution in fixed, explainable KZT bands."""
     columns = ["amount_band", "n_tx", "sum_kzt", "share_tx", "share_kzt"]
@@ -1024,6 +1038,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   seed_report: pd.DataFrame, seed_components: pd.DataFrame,
                   components: pd.DataFrame, component_roles: pd.DataFrame,
                   component_attention: pd.DataFrame,
+                  isolated_nodes: pd.DataFrame,
                   amount_bands: pd.DataFrame, roles: pd.DataFrame,
                   top_edges: pd.DataFrame, daily: pd.DataFrame,
                   boundary_queue: pd.DataFrame, cluster_roles: pd.DataFrame,
@@ -1104,6 +1119,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     components.to_csv(out / "components.csv", index=False)
     component_roles.to_csv(out / "component_roles.csv", index=False)
     component_attention.to_csv(out / "component_attention.csv", index=False)
+    isolated_nodes.to_csv(out / "isolated_nodes.csv", index=False)
     amount_bands.to_csv(out / "amount_bands.csv", index=False)
     roles.to_csv(out / "role_summary.csv", index=False)
     top_edges.to_csv(out / "top_edges.csv", index=False)
@@ -1170,6 +1186,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "components": components.to_dict(orient="records"),
                "componentRoles": component_roles.to_dict(orient="records"),
                "componentAttention": component_attention.to_dict(orient="records"),
+               "isolatedNodes": isolated_nodes.to_dict(orient="records"),
                "amountBands": amount_bands.to_dict(orient="records"),
                "roleSummary": roles.to_dict(orient="records"),
                "topEdges": top_edges.to_dict(orient="records"),
@@ -1217,6 +1234,7 @@ def main():
     seed_components = seed_component_summary(graph, df, edges)
     components = component_summary(graph, df, edges)
     component_roles = component_role_matrix(graph, df)
+    isolated_nodes = isolated_nodes_report(graph, df)
     amount_bands = amount_band_summary(tx)
     roles = role_summary(df)
     top_edges = top_edge_summary(edges, df)
@@ -1235,7 +1253,7 @@ def main():
     counterparties = top_counterparties(edges, df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                   seed_report, seed_components, components, component_roles,
-                  component_attention, amount_bands, roles, top_edges,
+                  component_attention, isolated_nodes, amount_bands, roles, top_edges,
                   daily, boundary_queue, cluster_roles, seed_roles, attention_rows, cluster_attention,
                   route_nodes, cycle_nodes, depths, cluster_depths, role_depths, counterparties,
                   timeline, args.out)
