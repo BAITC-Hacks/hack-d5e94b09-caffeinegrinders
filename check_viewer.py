@@ -26,7 +26,7 @@ def check_viewer(path: Path) -> dict:
     required = {"nodes", "edges", "cycles", "routes", "clusters", "clusterFlows",
                 "gaps", "riskFlags", "seedCoverage", "seedComponents", "components", "amountBands",
                 "roleSummary", "topEdges", "dailySummary", "boundaryReview",
-                "clusterRoles", "seedRoleReach", "attentionExamples", "routeNodes",
+                "clusterRoles", "seedRoleReach", "attentionExamples", "clusterAttention", "routeNodes",
                 "cycleNodes", "depthSummary", "clusterDepths", "roleDepths",
                 "topCounterparties"}
     missing = required - set(payload)

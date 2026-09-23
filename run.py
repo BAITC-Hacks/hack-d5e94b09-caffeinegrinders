@@ -551,6 +551,29 @@ def attention_examples(df: pd.DataFrame):
     return pd.DataFrame(rows, columns=columns)
 
 
+def cluster_attention_summary(df: pd.DataFrame, attention_rows: pd.DataFrame):
+    """Optional attention flags aggregated by cluster."""
+    columns = ["cluster_id", "flag", "n_nodes", "share_cluster", "avg_priority_score",
+               "top_gids", "meaning"]
+    if attention_rows.empty:
+        return pd.DataFrame(columns=columns)
+    cluster_sizes = df.groupby("cluster_id").size().to_dict()
+    rows = []
+    for (cluster_id, flag), group in attention_rows.groupby(["cluster_id", "flag"], sort=True):
+        leaders = group.sort_values(["priority_score", "gid"], ascending=[False, True]).head(5)
+        n_nodes = group.gid.nunique()
+        rows.append({"cluster_id": int(cluster_id),
+                     "flag": flag,
+                     "n_nodes": int(n_nodes),
+                     "share_cluster": round(n_nodes / cluster_sizes[cluster_id], 4),
+                     "avg_priority_score": round(float(group.priority_score.mean()), 6),
+                     "top_gids": ";".join(str(int(x)) for x in leaders.gid),
+                     "meaning": group.meaning.iloc[0]})
+    return pd.DataFrame(rows, columns=columns).sort_values(
+        ["cluster_id", "n_nodes", "flag"], ascending=[True, False, True]
+    ).reset_index(drop=True)
+
+
 def cluster_flows(df: pd.DataFrame, edges: pd.DataFrame):
     """Aggregated transfers between clusters for ingress/egress review."""
     cluster_of = dict(zip(df.gid, df.cluster_id))
@@ -950,6 +973,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   top_edges: pd.DataFrame, daily: pd.DataFrame,
                   boundary_queue: pd.DataFrame, cluster_roles: pd.DataFrame,
                   seed_roles: pd.DataFrame, attention_rows: pd.DataFrame,
+                  cluster_attention: pd.DataFrame,
                   route_nodes: pd.DataFrame, cycle_nodes: pd.DataFrame,
                   depths: pd.DataFrame, cluster_depths: pd.DataFrame,
                   role_depths: pd.DataFrame, counterparties: pd.DataFrame,
@@ -1031,6 +1055,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     cluster_roles.to_csv(out / "cluster_roles.csv", index=False)
     seed_roles.to_csv(out / "seed_role_reach.csv", index=False)
     attention_rows.to_csv(out / "attention_examples.csv", index=False)
+    cluster_attention.to_csv(out / "cluster_attention.csv", index=False)
     route_nodes.to_csv(out / "route_nodes.csv", index=False)
     cycle_nodes.to_csv(out / "cycle_nodes.csv", index=False)
     depths.to_csv(out / "depth_summary.csv", index=False)
@@ -1094,6 +1119,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "clusterRoles": cluster_roles.to_dict(orient="records"),
                "seedRoleReach": seed_roles.to_dict(orient="records"),
                "attentionExamples": attention_rows.to_dict(orient="records"),
+               "clusterAttention": cluster_attention.to_dict(orient="records"),
                "routeNodes": route_nodes.to_dict(orient="records"),
                "cycleNodes": cycle_nodes.to_dict(orient="records"),
                "depthSummary": depths.to_dict(orient="records"),
@@ -1139,6 +1165,7 @@ def main():
     cluster_roles = cluster_role_matrix(df)
     seed_roles = seed_role_reach(graph, df)
     attention_rows = attention_examples(df)
+    cluster_attention = cluster_attention_summary(df, attention_rows)
     route_nodes = route_node_membership(routes, df)
     cycle_nodes = cycle_node_membership(cycles, df)
     depths = depth_summary(df)
@@ -1147,7 +1174,7 @@ def main():
     counterparties = top_counterparties(edges, df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                   seed_report, seed_components, components, amount_bands, roles, top_edges,
-                  daily, boundary_queue, cluster_roles, seed_roles, attention_rows,
+                  daily, boundary_queue, cluster_roles, seed_roles, attention_rows, cluster_attention,
                   route_nodes, cycle_nodes, depths, cluster_depths, role_depths, counterparties,
                   timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES

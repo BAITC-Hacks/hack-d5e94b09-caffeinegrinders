@@ -22,7 +22,7 @@ python -m venv .venv
 
 Если окружение `.venv` уже подготовлено, достаточно последней команды.
 
-Результат находится в `out/`: три обязательные выгрузки `nodes_roles.csv`, `clusters.csv`, `top_nodes.csv`, дополнительные `cycles.csv`, `cycle_nodes.csv`, `routes.csv`, `route_nodes.csv`, `timeline.csv`, `daily_summary.csv`, `depth_summary.csv`, `risk_flags.csv`, `attention_examples.csv`, `cluster_flows.csv`, `seed_coverage.csv`, `seed_components.csv`, `seed_role_reach.csv`, `components.csv`, `amount_bands.csv`, `role_summary.csv`, `role_depths.csv`, `top_edges.csv`, `top_counterparties.csv`, `boundary_review.csv`, `cluster_roles.csv`, `cluster_depths.csv`, `resilience.csv`, `data_gaps.csv` и автономная страница `network.html`. Откройте HTML в браузере как обычный файл. Интернет и сервер для просмотра не нужны. На предоставленных 2 248 узлах прямой расчёт `run.py` занимает менее секунды на тестовой машине; установка пакетов в это время не входит. Целевой предел пересчёта — 5 минут.
+Результат находится в `out/`: три обязательные выгрузки `nodes_roles.csv`, `clusters.csv`, `top_nodes.csv`, дополнительные `cycles.csv`, `cycle_nodes.csv`, `routes.csv`, `route_nodes.csv`, `timeline.csv`, `daily_summary.csv`, `depth_summary.csv`, `risk_flags.csv`, `attention_examples.csv`, `cluster_attention.csv`, `cluster_flows.csv`, `seed_coverage.csv`, `seed_components.csv`, `seed_role_reach.csv`, `components.csv`, `amount_bands.csv`, `role_summary.csv`, `role_depths.csv`, `top_edges.csv`, `top_counterparties.csv`, `boundary_review.csv`, `cluster_roles.csv`, `cluster_depths.csv`, `resilience.csv`, `data_gaps.csv` и автономная страница `network.html`. Откройте HTML в браузере как обычный файл. Интернет и сервер для просмотра не нужны. На предоставленных 2 248 узлах прямой расчёт `run.py` занимает менее секунды на тестовой машине; установка пакетов в это время не входит. Целевой предел пересчёта — 5 минут.
 
 ## Сценарий аналитика
 
@@ -92,6 +92,7 @@ priority_score = base × role_factor × boundary_factor × seed_factor
 | `depth_summary.csv` | Сводка по коленям обхода 0–4: число узлов, seed, граница выборки, оборот, средний приоритет и топовые `gid`. |
 | `risk_flags.csv` | Сводка optional-флагов внимания: число узлов, доля, смысл и топовые примеры `gid`. |
 | `attention_examples.csv` | Детализация `risk_flags.csv`: одна строка на пару `flag` + `gid` с метрикой, ролью, кластером, `evidence` и `attention`. |
+| `cluster_attention.csv` | Флаги внимания по кластерам: сколько уникальных `gid` с каждым флагом, доля внутри кластера и топовые примеры. |
 | `cluster_flows.csv` | Межкластерные потоки: `src_cluster`, `dst_cluster`, сумма, число рёбер и транзакций. |
 | `seed_coverage.csv` | Покрытие каждого seed: достижимые узлы за 4 перевода, прямые получатели, прямой исходящий поток и кластер. |
 | `seed_components.csv` | Компонента каждого seed: размер фрагмента, число seed в нём, внутренний оборот, рёбра, кластер и охват за 4 перевода. |

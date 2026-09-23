@@ -174,6 +174,11 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(counts.get(flag, 0), row.n_nodes)
         self.assertTrue(attention_examples.metric_value.notna().all())
         self.assertTrue(attention_examples.evidence.str.len().between(1, 200).all())
+        cluster_attention = pd.read_csv(self.out / "cluster_attention.csv")
+        expected_attention = attention_examples.groupby(["cluster_id", "flag"]).gid.nunique()
+        actual_attention = cluster_attention.set_index(["cluster_id", "flag"]).n_nodes
+        self.assertEqual(actual_attention.to_dict(), expected_attention.to_dict())
+        self.assertTrue(cluster_attention.share_cluster.between(0, 1).all())
         flows = pd.read_csv(self.out / "cluster_flows.csv")
         lookup = dict(zip(self.nodes.gid, self.nodes.cluster_id))
         expected = 0.0
@@ -317,6 +322,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"clusterRoles":[', html)
         self.assertIn('"seedRoleReach":[', html)
         self.assertIn('"attentionExamples":[', html)
+        self.assertIn('"clusterAttention":[', html)
         self.assertIn('"routeNodes":[', html)
         self.assertIn('"cycleNodes":[', html)
         self.assertIn('"depthSummary":[', html)
@@ -347,7 +353,7 @@ class PipelineTest(unittest.TestCase):
                          "seed_components.csv", "components.csv", "amount_bands.csv", "role_summary.csv",
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
                          "cluster_roles.csv", "seed_role_reach.csv", "attention_examples.csv",
-                         "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
+                         "cluster_attention.csv", "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
                          "cluster_depths.csv", "role_depths.csv", "top_counterparties.csv",
                          "timeline.csv", "network.html"):
                 with self.subTest(file=name):
