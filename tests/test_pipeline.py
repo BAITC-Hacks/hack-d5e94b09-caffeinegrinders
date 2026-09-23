@@ -64,6 +64,22 @@ class PipelineTest(unittest.TestCase):
         self.assertTrue(self.top.priority_score.is_monotonic_decreasing)
         self.assertTrue(self.top.why.str.len().gt(0).all())
 
+    def test_priority_breakdown_matches_score(self):
+        pieces = ["priority_payers", "priority_incoming", "priority_seed_reach",
+                  "priority_bridge", "priority_recipients", "priority_rapid"]
+        self.assertTrue(self.nodes[pieces + ["priority_base", "priority_role_factor",
+                                             "priority_boundary_factor", "priority_seed_factor"]].notna().all().all())
+        expected_base = self.nodes[pieces].sum(axis=1).round(6)
+        self.assertTrue(np.allclose(self.nodes.priority_base, expected_base, atol=.00001))
+        expected_score = (self.nodes.priority_base
+                          * self.nodes.priority_role_factor
+                          * self.nodes.priority_boundary_factor
+                          * self.nodes.priority_seed_factor).clip(0, 1).round(6)
+        self.assertTrue(np.allclose(self.nodes.priority_score, expected_score, atol=.00001))
+        self.assertTrue(self.nodes.priority_role_factor.between(.7, 1).all())
+        self.assertTrue(self.nodes.priority_boundary_factor.isin([.65, 1.0]).all())
+        self.assertTrue(self.nodes.priority_seed_factor.isin([.85, 1.0]).all())
+
     def test_cycles_follow_real_transfers(self):
         cycles = pd.read_csv(self.out / "cycles.csv")
         edges = pd.read_parquet(ROOT / "data" / "edges.parquet")

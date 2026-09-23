@@ -298,14 +298,24 @@ def rank_nodes(df: pd.DataFrame):
         "bridge": df.bridge.rank(pct=True),
         "recipients": df.out_deg.rank(pct=True),
     }
-    score = (.20 * signals["payers"] + .20 * signals["incoming"]
-             + .20 * signals["seeds"] + .20 * signals["bridge"]
-             + .15 * signals["recipients"] + .05 * df.rapid_48h)
-    score *= df.role.map({"coordinator": 1.0, "consolidator": 1.0,
-                          "distributor": 1.0, "transit": .95,
-                          "terminal": .85, "peripheral": .75})
-    score *= np.where(df.boundary, .65, 1.0)
-    score *= np.where(df.is_seed, .85, 1.0)
+    contributions = {
+        "priority_payers": .20 * signals["payers"],
+        "priority_incoming": .20 * signals["incoming"],
+        "priority_seed_reach": .20 * signals["seeds"],
+        "priority_bridge": .20 * signals["bridge"],
+        "priority_recipients": .15 * signals["recipients"],
+        "priority_rapid": .05 * df.rapid_48h,
+    }
+    for column, values in contributions.items():
+        df[column] = values.round(6)
+    base = sum(contributions.values())
+    df["priority_base"] = base.round(6)
+    df["priority_role_factor"] = df.role.map({"coordinator": 1.0, "consolidator": 1.0,
+                                              "distributor": 1.0, "transit": .95,
+                                              "terminal": .85, "peripheral": .75})
+    df["priority_boundary_factor"] = np.where(df.boundary, .65, 1.0)
+    df["priority_seed_factor"] = np.where(df.is_seed, .85, 1.0)
+    score = base * df.priority_role_factor * df.priority_boundary_factor * df.priority_seed_factor
     df["priority_score"] = score.clip(0, 1).round(6)
     return df
 
@@ -377,7 +387,11 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
                  "in_tx", "out_tx", "seed_reach", "bridge", "rapid_48h", "boundary",
                  "p_hidden_outgoing", "cycles", "cycle_with_seed", "sync_payers_max",
-                 "repeat_amount_max", "near_threshold_in", "attention"]
+                 "repeat_amount_max", "near_threshold_in", "priority_base",
+                 "priority_payers", "priority_incoming", "priority_seed_reach",
+                 "priority_bridge", "priority_recipients", "priority_rapid",
+                 "priority_role_factor", "priority_boundary_factor", "priority_seed_factor",
+                 "attention"]
     df[node_cols].to_csv(out / "nodes_roles.csv", index=False)
     cluster_of = dict(zip(df.gid, df.cluster_id))
     internal = defaultdict(float)
@@ -444,6 +458,18 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                           "seedReach": int(r.seed_reach), "boundary": bool(r.boundary),
                           "cycles": int(r.cycles), "syncPayers": int(r.sync_payers_max),
                           "pHidden": float(r.p_hidden_outgoing), "attention": r.attention,
+                          "priority": {
+                              "base": float(r.priority_base),
+                              "payers": float(r.priority_payers),
+                              "incoming": float(r.priority_incoming),
+                              "seedReach": float(r.priority_seed_reach),
+                              "bridge": float(r.priority_bridge),
+                              "recipients": float(r.priority_recipients),
+                              "rapid": float(r.priority_rapid),
+                              "roleFactor": float(r.priority_role_factor),
+                              "boundaryFactor": float(r.priority_boundary_factor),
+                              "seedFactor": float(r.priority_seed_factor),
+                          },
                           "timeline": timeline_by_gid[int(r.gid)]}
                          for r in df.itertuples(index=False)],
                "edges": [{"src": str(r.src), "dst": str(r.dst), "amount": float(r.sum_kzt), "count": int(r.n_tx)}

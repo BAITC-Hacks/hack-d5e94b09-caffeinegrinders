@@ -74,6 +74,8 @@ priority_score = base × role_factor × boundary_factor × seed_factor
 
 `P` — процентильный ранг признака среди всех узлов с одинаковым значением для совпадающих значений. `role_factor`: coordinator/consolidator/distributor = 1; transit = 0.95; terminal = 0.85; peripheral = 0.75. `boundary_factor = 0.65` для узла на четвёртом колене без исходящих, иначе 1. `seed_factor = 0.85` для известных seed, иначе 1. Итог ограничен диапазоном 0–1. Эти коэффициенты задают очередь проверки, а не оценку вины. `top_nodes.csv` содержит первые 100 строк с ролью, скором и числовым обоснованием; минимум ТЗ — 20.
 
+Чтобы приоритет был проверяемым, `nodes_roles.csv` дополнительно содержит разбор формулы: `priority_base`, вклады `priority_payers`, `priority_incoming`, `priority_seed_reach`, `priority_bridge`, `priority_recipients`, `priority_rapid` и множители `priority_role_factor`, `priority_boundary_factor`, `priority_seed_factor`. Те же числа видны в карточке узла в `network.html`.
+
 ## Файлы результата
 
 | Файл | Содержание |

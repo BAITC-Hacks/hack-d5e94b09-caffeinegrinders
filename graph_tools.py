@@ -13,7 +13,11 @@ from run import build_model
 
 NODE_FIELDS = ["role", "role_score", "priority_score", "cluster_id", "depth", "is_seed",
                "in_deg", "out_deg", "in_kzt", "out_kzt", "seed_reach", "boundary",
-               "p_hidden_outgoing", "cycles", "sync_payers_max", "evidence", "attention"]
+               "p_hidden_outgoing", "cycles", "sync_payers_max", "priority_base",
+               "priority_payers", "priority_incoming", "priority_seed_reach",
+               "priority_bridge", "priority_recipients", "priority_rapid",
+               "priority_role_factor", "priority_boundary_factor", "priority_seed_factor",
+               "evidence", "attention"]
 
 
 class UnknownGid(ValueError):
