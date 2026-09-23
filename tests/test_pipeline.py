@@ -189,6 +189,16 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(components.n_nodes.sum(), len(self.nodes))
         self.assertEqual(components.is_main_component.sum(), 1)
         self.assertTrue(components.n_nodes.is_monotonic_decreasing)
+        seed_components = pd.read_csv(self.out / "seed_components.csv")
+        self.assertEqual(len(seed_components), int(self.nodes.is_seed.sum()))
+        self.assertTrue(set(seed_components.component_id).issubset(set(components.component_id)))
+        coverage = seeds.set_index("seed_gid")
+        for row in seed_components.itertuples(index=False):
+            self.assertEqual(row.reachable_nodes, coverage.loc[row.seed_gid, "reachable_nodes"])
+            self.assertEqual(row.max_depth_reached, coverage.loc[row.seed_gid, "max_depth_reached"])
+        component_sizes = components.set_index("component_id").n_nodes
+        for row in seed_components.itertuples(index=False):
+            self.assertEqual(row.component_nodes, component_sizes.loc[row.component_id])
         amount_bands = pd.read_csv(self.out / "amount_bands.csv")
         tx = pd.read_parquet(ROOT / "data" / "transactions.parquet")
         self.assertEqual(amount_bands.n_tx.sum(), len(tx))
@@ -291,6 +301,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"clusterFlows":[', html)
         self.assertIn('"gaps":[', html)
         self.assertIn('"seedCoverage":[', html)
+        self.assertIn('"seedComponents":[', html)
         self.assertIn('"components":[', html)
         self.assertIn('"amountBands":[', html)
         self.assertIn('"roleSummary":[', html)
@@ -326,7 +337,7 @@ class PipelineTest(unittest.TestCase):
             for name in ("nodes_roles.csv", "clusters.csv", "top_nodes.csv",
                          "cycles.csv", "routes.csv", "resilience.csv", "data_gaps.csv",
                          "risk_flags.csv", "cluster_flows.csv", "seed_coverage.csv",
-                         "components.csv", "amount_bands.csv", "role_summary.csv",
+                         "seed_components.csv", "components.csv", "amount_bands.csv", "role_summary.csv",
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
                          "cluster_roles.csv", "seed_role_reach.csv", "attention_examples.csv",
                          "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
