@@ -27,7 +27,7 @@ def check_viewer(path: Path) -> dict:
                 "gaps", "riskFlags", "seedCoverage", "components", "amountBands",
                 "roleSummary", "topEdges", "dailySummary", "boundaryReview",
                 "clusterRoles", "seedRoleReach", "attentionExamples", "routeNodes",
-                "cycleNodes", "depthSummary", "clusterDepths"}
+                "cycleNodes", "depthSummary", "clusterDepths", "topCounterparties"}
     missing = required - set(payload)
     if missing:
         raise ValueError(f"viewer payload missing keys: {sorted(missing)}")
