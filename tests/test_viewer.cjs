@@ -38,7 +38,8 @@ const nodes = [1, 2, 3].map(id => ({
   role: id === 3 ? 'terminal' : 'peripheral', evidence: 'test', depth: 1,
   seed: id === 1, boundary: id === 3,
   incoming: 1, outgoing: 1, inKzt: 100, outKzt: 100, seedReach: 1,
-  cycles: 0, syncPayers: 1, pHidden: 0, attention: id === 2 ? 'flag' : 'нет',
+  inTx: 1, outTx: 1, nearThresholdIn: 0,
+  cycles: 0, syncPayers: 1, pHidden: id === 3 ? .6 : 0, attention: id === 2 ? 'flag' : 'нет',
 }));
 const edges = [{ src: '1', dst: '2', amount: 100, count: 1 },
   { src: '2', dst: '3', amount: 100, count: 1 }];
@@ -73,6 +74,7 @@ assert.match(report, /# Рабочий отчёт/);
 assert.match(report, /## 1/);
 assert.match(report, /Evidence: test/);
 assert.match(report, /Заметка аналитика: watch/);
+assert.match(vm.runInContext("dataRequestsForNode(byId.get('3')).join(';')", sandbox), /продлить обход/);
 elements.get('clearCase').onclick();
 assert.equal(vm.runInContext('caseState.gids.length', sandbox), 0);
 console.log('Viewer cluster regression passed');

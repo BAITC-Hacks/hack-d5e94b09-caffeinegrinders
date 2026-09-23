@@ -463,6 +463,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                           "inKzt": float(r.in_kzt), "outKzt": float(r.out_kzt),
                           "seedReach": int(r.seed_reach), "boundary": bool(r.boundary),
                           "cycles": int(r.cycles), "syncPayers": int(r.sync_payers_max),
+                          "nearThresholdIn": int(r.near_threshold_in),
+                          "inTx": int(r.in_tx), "outTx": int(r.out_tx),
                           "pHidden": float(r.p_hidden_outgoing), "attention": r.attention,
                           "priority": {
                               "base": float(r.priority_base),
@@ -480,7 +482,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                          for r in df.itertuples(index=False)],
                "edges": [{"src": str(r.src), "dst": str(r.dst), "amount": float(r.sum_kzt), "count": int(r.n_tx)}
                          for r in edges.itertuples(index=False)],
-               "clusters": cluster_payload}
+               "clusters": cluster_payload,
+               "gaps": gaps.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     (out / "network.html").write_text(page, encoding="utf-8")
