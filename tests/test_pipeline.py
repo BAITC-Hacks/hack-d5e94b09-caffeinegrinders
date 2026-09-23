@@ -185,6 +185,12 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(actual_role_attention.to_dict(), expected_role_attention.to_dict())
         self.assertTrue(role_attention.share_role.between(0, 1).all())
         self.assertTrue(set(role_attention.role).issubset(set(self.nodes.role)))
+        depth_attention = pd.read_csv(self.out / "depth_attention.csv")
+        attention_with_depth = attention_examples.merge(self.nodes[["gid", "depth"]], on="gid", how="left")
+        expected_depth_attention = attention_with_depth.groupby(["depth", "flag"]).gid.nunique()
+        actual_depth_attention = depth_attention.set_index(["depth", "flag"]).n_nodes
+        self.assertEqual(actual_depth_attention.to_dict(), expected_depth_attention.to_dict())
+        self.assertTrue(depth_attention.share_depth.between(0, 1).all())
         flows = pd.read_csv(self.out / "cluster_flows.csv")
         lookup = dict(zip(self.nodes.gid, self.nodes.cluster_id))
         expected = 0.0
@@ -397,6 +403,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"attentionExamples":[', html)
         self.assertIn('"clusterAttention":[', html)
         self.assertIn('"roleAttention":[', html)
+        self.assertIn('"depthAttention":[', html)
         self.assertIn('"routeNodes":[', html)
         self.assertIn('"cycleNodes":[', html)
         self.assertIn('"depthSummary":[', html)
@@ -431,7 +438,8 @@ class PipelineTest(unittest.TestCase):
                          "amount_bands.csv", "role_summary.csv",
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
                          "cluster_roles.csv", "seed_role_reach.csv", "seed_overlap.csv", "attention_examples.csv",
-                         "cluster_attention.csv", "role_attention.csv", "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
+                         "cluster_attention.csv", "role_attention.csv", "depth_attention.csv",
+                         "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
                          "cluster_depths.csv", "role_depths.csv", "role_flows.csv", "depth_flows.csv",
                          "top_counterparties.csv",
                          "timeline.csv", "network.html"):
