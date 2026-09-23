@@ -188,6 +188,27 @@ class PipelineTest(unittest.TestCase):
         self.assertTrue(top_edges.sum_kzt.is_monotonic_decreasing)
         self.assertTrue(np.isclose(top_edges.iloc[0].sum_kzt, source_edges.sum_kzt.max(), atol=.01))
         self.assertTrue(set(zip(top_edges.src, top_edges.dst)).issubset(set(zip(source_edges.src, source_edges.dst))))
+        daily = pd.read_csv(self.out / "daily_summary.csv")
+        tx["date"] = pd.to_datetime(tx.date).dt.date.astype(str)
+        self.assertEqual(daily.n_tx.sum(), len(tx))
+        self.assertTrue(np.isclose(daily.sum_kzt.sum(), tx.sum_kzt.sum(), atol=.01))
+        self.assertTrue(daily.date.is_monotonic_increasing)
+        busiest = daily.sort_values(["n_tx", "sum_kzt"], ascending=False).iloc[0]
+        day_tx = tx[tx.date == busiest.date]
+        self.assertEqual(busiest.unique_senders, day_tx.src.nunique())
+        self.assertEqual(busiest.unique_recipients, day_tx.dst.nunique())
+        boundary = pd.read_csv(self.out / "boundary_review.csv")
+        self.assertEqual(len(boundary), int(self.nodes.boundary.sum()))
+        self.assertEqual(boundary["rank"].tolist(), list(range(1, len(boundary) + 1)))
+        self.assertTrue(boundary.p_hidden_outgoing.is_monotonic_decreasing)
+        self.assertTrue((boundary.depth == 4).all())
+        self.assertTrue(boundary.next_request.str.contains("Запросить исходящие").all())
+        cluster_roles = pd.read_csv(self.out / "cluster_roles.csv")
+        by_cluster = cluster_roles.groupby("cluster_id").n_nodes.sum().sort_index()
+        expected_by_cluster = self.nodes.groupby("cluster_id").size().sort_index()
+        self.assertEqual(by_cluster.to_dict(), expected_by_cluster.to_dict())
+        self.assertTrue(cluster_roles.share_cluster.between(0, 1).all())
+        self.assertTrue(set(cluster_roles.role).issubset(set(self.nodes.role)))
 
     def test_timeline_matches_transactions(self):
         timeline = pd.read_csv(self.out / "timeline.csv")
@@ -223,6 +244,9 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"amountBands":[', html)
         self.assertIn('"roleSummary":[', html)
         self.assertIn('"topEdges":[', html)
+        self.assertIn('"dailySummary":[', html)
+        self.assertIn('"boundaryReview":[', html)
+        self.assertIn('"clusterRoles":[', html)
         self.assertIn("<canvas", html)
 
     def test_outputs_are_identical_after_input_rows_are_shuffled(self):
@@ -245,7 +269,8 @@ class PipelineTest(unittest.TestCase):
                          "cycles.csv", "routes.csv", "resilience.csv", "data_gaps.csv",
                          "risk_flags.csv", "cluster_flows.csv", "seed_coverage.csv",
                          "components.csv", "amount_bands.csv", "role_summary.csv",
-                         "top_edges.csv", "timeline.csv", "network.html"):
+                         "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
+                         "cluster_roles.csv", "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),

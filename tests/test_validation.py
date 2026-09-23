@@ -10,7 +10,8 @@ from run import (
     load_data, graph_features, assign_clusters, score_roles, rank_nodes,
     find_cycles, find_routes, flag_attention, network_resilience, data_gaps,
     risk_flags_summary, cluster_flows, seed_coverage, component_summary,
-    amount_band_summary, role_summary, top_edge_summary, write_outputs, daily_timeline,
+    amount_band_summary, role_summary, top_edge_summary, daily_summary,
+    boundary_review, cluster_role_matrix, write_outputs, daily_timeline,
 )
 
 
@@ -94,10 +95,13 @@ class ValidationTest(unittest.TestCase):
         amount_bands = amount_band_summary(tx)
         roles = role_summary(df)
         top_edges = top_edge_summary(edges, df)
+        daily = daily_summary(tx)
+        boundary_queue = boundary_review(df)
+        cluster_roles = cluster_role_matrix(df)
         timeline = daily_timeline(tx)
         write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                       seed_report, components, amount_bands, roles, top_edges,
-                      timeline, self.path / "out")
+                      daily, boundary_queue, cluster_roles, timeline, self.path / "out")
         self.assertEqual(df.cluster_id.nunique(), 2)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "top_nodes.csv")), 2)
         self.assertTrue(pd.read_csv(self.path / "out" / "cycles.csv").empty)
@@ -110,6 +114,9 @@ class ValidationTest(unittest.TestCase):
         self.assertTrue(pd.read_csv(self.path / "out" / "amount_bands.csv").empty)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "role_summary.csv")), 6)
         self.assertTrue(pd.read_csv(self.path / "out" / "top_edges.csv").empty)
+        self.assertTrue(pd.read_csv(self.path / "out" / "daily_summary.csv").empty)
+        self.assertTrue(pd.read_csv(self.path / "out" / "boundary_review.csv").empty)
+        self.assertEqual(pd.read_csv(self.path / "out" / "cluster_roles.csv").n_nodes.sum(), 2)
         self.assertTrue((resilience.edges_left == 0).all())
         self.assertTrue((resilience.seed_reach_share == 0).all())
         self.assertEqual(len(pd.read_csv(self.path / "out" / "data_gaps.csv")), 6)

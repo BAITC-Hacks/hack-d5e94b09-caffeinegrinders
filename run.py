@@ -216,6 +216,25 @@ def daily_timeline(tx: pd.DataFrame):
     return timeline[columns].sort_values(["gid", "date"]).reset_index(drop=True)
 
 
+def daily_summary(tx: pd.DataFrame):
+    """Network-level daily visible transaction activity."""
+    columns = ["date", "n_tx", "sum_kzt", "unique_senders", "unique_recipients", "active_nodes"]
+    if tx.empty:
+        return pd.DataFrame(columns=columns)
+    dated = tx.copy()
+    dated["date"] = dated.date.dt.date.astype(str)
+    rows = []
+    for date, group in dated.groupby("date", sort=True):
+        active = pd.concat([group.src, group.dst], ignore_index=True).nunique()
+        rows.append({"date": date,
+                     "n_tx": int(len(group)),
+                     "sum_kzt": round(float(group.sum_kzt.sum()), 2),
+                     "unique_senders": int(group.src.nunique()),
+                     "unique_recipients": int(group.dst.nunique()),
+                     "active_nodes": int(active)})
+    return pd.DataFrame(rows, columns=columns)
+
+
 def find_routes(tx: pd.DataFrame, df: pd.DataFrame):
     """Forwarding routes based on timing and similar transfer amounts.
 
@@ -625,12 +644,53 @@ def top_edge_summary(edges: pd.DataFrame, df: pd.DataFrame, limit: int = 200):
     return pd.DataFrame(rows, columns=columns)
 
 
+def boundary_review(df: pd.DataFrame):
+    """Queue boundary nodes for optional next-hop data requests."""
+    columns = ["rank", "gid", "depth", "in_deg", "in_kzt", "p_hidden_outgoing",
+               "cluster_id", "priority_score", "attention", "next_request"]
+    boundary = df[df.boundary].copy()
+    if boundary.empty:
+        return pd.DataFrame(columns=columns)
+    boundary = boundary.sort_values(["p_hidden_outgoing", "in_kzt", "in_deg", "gid"],
+                                    ascending=[False, False, False, True]).reset_index(drop=True)
+    boundary.insert(0, "rank", range(1, len(boundary) + 1))
+    boundary["next_request"] = boundary.apply(
+        lambda r: (f"Запросить исходящие переводы от gid {int(r.gid)} за следующий шаг; "
+                   f"оценка скрытого выхода {r.p_hidden_outgoing:.0%}."), axis=1)
+    return boundary[columns]
+
+
+def cluster_role_matrix(df: pd.DataFrame):
+    """Role composition inside each detected cluster."""
+    columns = ["cluster_id", "role", "n_nodes", "share_cluster", "in_kzt",
+               "out_kzt", "avg_priority_score", "top_gids"]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    rows = []
+    cluster_sizes = df.groupby("cluster_id").size().to_dict()
+    for (cluster_id, role), group in df.groupby(["cluster_id", "role"], sort=True):
+        leaders = group.sort_values(["priority_score", "gid"], ascending=[False, True]).head(5)
+        rows.append({"cluster_id": int(cluster_id),
+                     "role": role,
+                     "n_nodes": int(len(group)),
+                     "share_cluster": round(len(group) / cluster_sizes[cluster_id], 4),
+                     "in_kzt": round(float(group.in_kzt.sum()), 2),
+                     "out_kzt": round(float(group.out_kzt.sum()), 2),
+                     "avg_priority_score": round(float(group.priority_score.mean()), 6),
+                     "top_gids": ";".join(str(x) for x in leaders.gid)})
+    return pd.DataFrame(rows, columns=columns).sort_values(
+        ["cluster_id", "n_nodes", "role"], ascending=[True, False, True]
+    ).reset_index(drop=True)
+
+
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
                   risk_flags: pd.DataFrame, flows: pd.DataFrame,
                   seed_report: pd.DataFrame, components: pd.DataFrame,
                   amount_bands: pd.DataFrame, roles: pd.DataFrame,
-                  top_edges: pd.DataFrame, timeline: pd.DataFrame, out: Path):
+                  top_edges: pd.DataFrame, daily: pd.DataFrame,
+                  boundary_queue: pd.DataFrame, cluster_roles: pd.DataFrame,
+                  timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
@@ -702,6 +762,9 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     amount_bands.to_csv(out / "amount_bands.csv", index=False)
     roles.to_csv(out / "role_summary.csv", index=False)
     top_edges.to_csv(out / "top_edges.csv", index=False)
+    daily.to_csv(out / "daily_summary.csv", index=False)
+    boundary_queue.to_csv(out / "boundary_review.csv", index=False)
+    cluster_roles.to_csv(out / "cluster_roles.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
 
     timeline_by_gid = defaultdict(list)
@@ -752,7 +815,10 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "components": components.to_dict(orient="records"),
                "amountBands": amount_bands.to_dict(orient="records"),
                "roleSummary": roles.to_dict(orient="records"),
-               "topEdges": top_edges.to_dict(orient="records")}
+               "topEdges": top_edges.to_dict(orient="records"),
+               "dailySummary": daily.to_dict(orient="records"),
+               "boundaryReview": boundary_queue.to_dict(orient="records"),
+               "clusterRoles": cluster_roles.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     (out / "network.html").write_text(page, encoding="utf-8")
@@ -786,9 +852,12 @@ def main():
     amount_bands = amount_band_summary(tx)
     roles = role_summary(df)
     top_edges = top_edge_summary(edges, df)
+    daily = daily_summary(tx)
+    boundary_queue = boundary_review(df)
+    cluster_roles = cluster_role_matrix(df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                   seed_report, components, amount_bands, roles, top_edges,
-                  timeline, args.out)
+                  daily, boundary_queue, cluster_roles, timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()
     print(f"Готово: {len(df)} узлов, {len(edges)} рёбер, {df.cluster_id.nunique()} кластеров")
