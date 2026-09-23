@@ -29,7 +29,7 @@ def parse_gid(value) -> int:
 
 class GraphIndex:
     def __init__(self, data: Path):
-        self.nodes, self.edges, self.graph, df, self.cycles = build_model(data)
+        self.nodes, self.edges, self.graph, df, self.cycles, self.timeline = build_model(data)
         self.df = df.set_index(df.gid.to_numpy())
         # Rank 1 = highest priority, so answers can say "#3 in the queue".
         order = self.df.sort_values(["priority_score", "gid"], ascending=[False, True]).gid

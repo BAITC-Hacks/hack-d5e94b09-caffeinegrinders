@@ -8,7 +8,7 @@ import pandas as pd
 
 from run import (
     load_data, graph_features, assign_clusters, score_roles, rank_nodes,
-    find_cycles, flag_attention, network_resilience, data_gaps, write_outputs,
+    find_cycles, flag_attention, network_resilience, data_gaps, write_outputs, daily_timeline,
 )
 
 
@@ -84,10 +84,12 @@ class ValidationTest(unittest.TestCase):
         df = flag_attention(rank_nodes(score_roles(assign_clusters(graph, df, edges))))
         resilience = network_resilience(graph, df)
         gaps = data_gaps(df, graph)
-        write_outputs(df, edges, cycles, resilience, gaps, self.path / "out")
+        timeline = daily_timeline(tx)
+        write_outputs(df, edges, cycles, resilience, gaps, timeline, self.path / "out")
         self.assertEqual(df.cluster_id.nunique(), 2)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "top_nodes.csv")), 2)
         self.assertTrue(pd.read_csv(self.path / "out" / "cycles.csv").empty)
+        self.assertTrue(pd.read_csv(self.path / "out" / "timeline.csv").empty)
         self.assertTrue((resilience.edges_left == 0).all())
         self.assertTrue((resilience.seed_reach_share == 0).all())
         self.assertEqual(len(pd.read_csv(self.path / "out" / "data_gaps.csv")), 6)

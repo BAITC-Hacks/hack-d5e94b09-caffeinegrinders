@@ -101,10 +101,31 @@ class PipelineTest(unittest.TestCase):
                          (self.nodes.is_seed & (self.nodes.out_deg == 0)).sum())
         self.assertTrue(gaps.next_request.str.len().gt(0).all())
 
+    def test_timeline_matches_transactions(self):
+        timeline = pd.read_csv(self.out / "timeline.csv")
+        tx = pd.read_parquet(ROOT / "data" / "transactions.parquet")
+        tx["date"] = pd.to_datetime(tx.date).dt.date.astype(str)
+        self.assertEqual(
+            round(timeline.in_kzt.sum(), 2),
+            round(tx.sum_kzt.sum(), 2),
+        )
+        self.assertEqual(
+            round(timeline.out_kzt.sum(), 2),
+            round(tx.sum_kzt.sum(), 2),
+        )
+        busiest = timeline.sort_values(["in_tx", "out_tx"], ascending=False).iloc[0]
+        incoming = tx[(tx.dst == busiest.gid) & (tx.date == busiest.date)]
+        outgoing = tx[(tx.src == busiest.gid) & (tx.date == busiest.date)]
+        self.assertEqual(busiest.in_tx, len(incoming))
+        self.assertEqual(busiest.out_tx, len(outgoing))
+        self.assertEqual(busiest.unique_payers, incoming.src.nunique())
+        self.assertEqual(busiest.unique_recipients, outgoing.dst.nunique())
+
     def test_viewer_contains_graph(self):
         html = (self.out / "network.html").read_text(encoding="utf-8")
         self.assertNotIn("/* GRAPH_DATA */ null", html)
         self.assertIn(str(self.top.iloc[0].gid), html)
+        self.assertIn('"timeline":[', html)
         self.assertIn("<canvas", html)
 
     def test_outputs_are_identical_after_input_rows_are_shuffled(self):
@@ -124,7 +145,7 @@ class PipelineTest(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             for name in ("nodes_roles.csv", "clusters.csv", "top_nodes.csv",
-                         "cycles.csv", "resilience.csv", "data_gaps.csv", "network.html"):
+                         "cycles.csv", "resilience.csv", "data_gaps.csv", "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),
