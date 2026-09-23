@@ -17,6 +17,7 @@ function element() {
   };
 }
 const elements = new Map();
+const storage = new Map();
 const sandbox = vm.createContext({
   document: {
     getElementById(id) {
@@ -24,6 +25,10 @@ const sandbox = vm.createContext({
       return elements.get(id);
     },
     createElement: element,
+  },
+  localStorage: {
+    getItem(key) { return storage.has(key) ? storage.get(key) : null; },
+    setItem(key, value) { storage.set(key, String(value)); },
   },
   devicePixelRatio: 1,
   ResizeObserver: class { observe() {} },
@@ -60,4 +65,9 @@ assert.equal(vm.runInContext("visible.map(n => n.gid).join(',')", sandbox), '2')
 vm.runInContext("select('1');", sandbox);
 assert.equal(vm.runInContext("document.getElementById('flaggedOnly').checked", sandbox), false);
 assert.equal(vm.runInContext('selected', sandbox), '1');
+vm.runInContext("addCaseNode('1'); caseState.notes['1']='watch'; saveCase();", sandbox);
+assert.equal(JSON.parse(storage.get('moneyGraphCase:v1')).gids.join(','), '1');
+assert.equal(JSON.parse(storage.get('moneyGraphCase:v1')).notes['1'], 'watch');
+elements.get('clearCase').onclick();
+assert.equal(vm.runInContext('caseState.gids.length', sandbox), 0);
 console.log('Viewer cluster regression passed');
