@@ -11,7 +11,8 @@ from run import (
     find_cycles, find_routes, flag_attention, network_resilience, data_gaps,
     risk_flags_summary, attention_examples, cluster_attention_summary,
     cluster_flows, seed_coverage, component_summary,
-    seed_component_summary, amount_band_summary, role_summary, top_edge_summary, daily_summary,
+    seed_component_summary, component_role_matrix,
+    amount_band_summary, role_summary, top_edge_summary, daily_summary,
     boundary_review, cluster_role_matrix, seed_role_reach, route_node_membership,
     cycle_node_membership, depth_summary, cluster_depth_matrix, role_depth_matrix,
     write_outputs, daily_timeline, top_counterparties,
@@ -96,6 +97,7 @@ class ValidationTest(unittest.TestCase):
         seed_report = seed_coverage(graph, df)
         seed_components = seed_component_summary(graph, df, edges)
         components = component_summary(graph, df, edges)
+        component_roles = component_role_matrix(graph, df)
         amount_bands = amount_band_summary(tx)
         roles = role_summary(df)
         top_edges = top_edge_summary(edges, df)
@@ -113,7 +115,8 @@ class ValidationTest(unittest.TestCase):
         counterparties = top_counterparties(edges, df)
         timeline = daily_timeline(tx)
         write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
-                      seed_report, seed_components, components, amount_bands, roles, top_edges,
+                      seed_report, seed_components, components, component_roles,
+                      amount_bands, roles, top_edges,
                       daily, boundary_queue, cluster_roles, seed_roles, attention_rows, cluster_attention,
                       route_nodes, cycle_nodes, depths, cluster_depths, role_depths, counterparties,
                       timeline, self.path / "out")
@@ -127,6 +130,7 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(len(pd.read_csv(self.path / "out" / "seed_coverage.csv")), 1)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "seed_components.csv")), 1)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "components.csv")), 2)
+        self.assertEqual(pd.read_csv(self.path / "out" / "component_roles.csv").n_nodes.sum(), 2)
         self.assertTrue(pd.read_csv(self.path / "out" / "amount_bands.csv").empty)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "role_summary.csv")), 6)
         self.assertTrue(pd.read_csv(self.path / "out" / "top_edges.csv").empty)
