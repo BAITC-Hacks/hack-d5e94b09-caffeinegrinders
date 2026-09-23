@@ -507,10 +507,28 @@ def cluster_flows(df: pd.DataFrame, edges: pd.DataFrame):
                              ascending=[False, True, True]).reset_index(drop=True)
 
 
+def seed_coverage(graph: nx.DiGraph, df: pd.DataFrame):
+    """Per-seed reachability and direct outgoing footprint."""
+    rows = []
+    lookup = df.set_index("gid")
+    for seed in df.loc[df.is_seed, "gid"].sort_values():
+        seen = nx.single_source_shortest_path_length(graph, int(seed), cutoff=4)
+        out_edges = list(graph.out_edges(int(seed), data=True))
+        rows.append({"seed_gid": int(seed),
+                     "cluster_id": int(lookup.loc[seed, "cluster_id"]),
+                     "reachable_nodes": len(seen) - 1,
+                     "direct_recipients": len(out_edges),
+                     "direct_out_kzt": round(sum(data["sum_kzt"] for _, _, data in out_edges), 2),
+                     "max_depth_reached": max(seen.values(), default=0)})
+    return pd.DataFrame(rows, columns=["seed_gid", "cluster_id", "reachable_nodes",
+                                       "direct_recipients", "direct_out_kzt",
+                                       "max_depth_reached"])
+
+
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
                   risk_flags: pd.DataFrame, flows: pd.DataFrame,
-                  timeline: pd.DataFrame, out: Path):
+                  seed_report: pd.DataFrame, timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
@@ -577,6 +595,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     gaps.to_csv(out / "data_gaps.csv", index=False)
     risk_flags.to_csv(out / "risk_flags.csv", index=False)
     flows.to_csv(out / "cluster_flows.csv", index=False)
+    seed_report.to_csv(out / "seed_coverage.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
 
     timeline_by_gid = defaultdict(list)
@@ -622,7 +641,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "clusterFlows": flows.to_dict(orient="records"),
                "clusters": cluster_payload,
                "gaps": gaps.to_dict(orient="records"),
-               "riskFlags": risk_flags.to_dict(orient="records")}
+               "riskFlags": risk_flags.to_dict(orient="records"),
+               "seedCoverage": seed_report.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     (out / "network.html").write_text(page, encoding="utf-8")
@@ -649,7 +669,9 @@ def main():
     gaps = data_gaps(df, graph)
     risk_flags = risk_flags_summary(df)
     flows = cluster_flows(df, edges)
-    write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows, timeline, args.out)
+    seed_report = seed_coverage(graph, df)
+    write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
+                  seed_report, timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()
     print(f"Готово: {len(df)} узлов, {len(edges)} рёбер, {df.cluster_id.nunique()} кластеров")
