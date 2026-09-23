@@ -644,13 +644,29 @@ def top_edge_summary(edges: pd.DataFrame, df: pd.DataFrame, limit: int = 200):
     return pd.DataFrame(rows, columns=columns)
 
 
+def boundary_review(df: pd.DataFrame):
+    """Queue boundary nodes for optional next-hop data requests."""
+    columns = ["rank", "gid", "depth", "in_deg", "in_kzt", "p_hidden_outgoing",
+               "cluster_id", "priority_score", "attention", "next_request"]
+    boundary = df[df.boundary].copy()
+    if boundary.empty:
+        return pd.DataFrame(columns=columns)
+    boundary = boundary.sort_values(["p_hidden_outgoing", "in_kzt", "in_deg", "gid"],
+                                    ascending=[False, False, False, True]).reset_index(drop=True)
+    boundary.insert(0, "rank", range(1, len(boundary) + 1))
+    boundary["next_request"] = boundary.apply(
+        lambda r: (f"Запросить исходящие переводы от gid {int(r.gid)} за следующий шаг; "
+                   f"оценка скрытого выхода {r.p_hidden_outgoing:.0%}."), axis=1)
+    return boundary[columns]
+
+
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
                   risk_flags: pd.DataFrame, flows: pd.DataFrame,
                   seed_report: pd.DataFrame, components: pd.DataFrame,
                   amount_bands: pd.DataFrame, roles: pd.DataFrame,
                   top_edges: pd.DataFrame, daily: pd.DataFrame,
-                  timeline: pd.DataFrame, out: Path):
+                  boundary_queue: pd.DataFrame, timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
@@ -723,6 +739,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     roles.to_csv(out / "role_summary.csv", index=False)
     top_edges.to_csv(out / "top_edges.csv", index=False)
     daily.to_csv(out / "daily_summary.csv", index=False)
+    boundary_queue.to_csv(out / "boundary_review.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
 
     timeline_by_gid = defaultdict(list)
@@ -774,7 +791,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "amountBands": amount_bands.to_dict(orient="records"),
                "roleSummary": roles.to_dict(orient="records"),
                "topEdges": top_edges.to_dict(orient="records"),
-               "dailySummary": daily.to_dict(orient="records")}
+               "dailySummary": daily.to_dict(orient="records"),
+               "boundaryReview": boundary_queue.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     (out / "network.html").write_text(page, encoding="utf-8")
@@ -809,9 +827,10 @@ def main():
     roles = role_summary(df)
     top_edges = top_edge_summary(edges, df)
     daily = daily_summary(tx)
+    boundary_queue = boundary_review(df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                   seed_report, components, amount_bands, roles, top_edges,
-                  daily, timeline, args.out)
+                  daily, boundary_queue, timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()
     print(f"Готово: {len(df)} узлов, {len(edges)} рёбер, {df.cluster_id.nunique()} кластеров")

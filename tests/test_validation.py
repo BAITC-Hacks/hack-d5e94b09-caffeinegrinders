@@ -11,7 +11,7 @@ from run import (
     find_cycles, find_routes, flag_attention, network_resilience, data_gaps,
     risk_flags_summary, cluster_flows, seed_coverage, component_summary,
     amount_band_summary, role_summary, top_edge_summary, daily_summary,
-    write_outputs, daily_timeline,
+    boundary_review, write_outputs, daily_timeline,
 )
 
 
@@ -96,10 +96,11 @@ class ValidationTest(unittest.TestCase):
         roles = role_summary(df)
         top_edges = top_edge_summary(edges, df)
         daily = daily_summary(tx)
+        boundary_queue = boundary_review(df)
         timeline = daily_timeline(tx)
         write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                       seed_report, components, amount_bands, roles, top_edges,
-                      daily, timeline, self.path / "out")
+                      daily, boundary_queue, timeline, self.path / "out")
         self.assertEqual(df.cluster_id.nunique(), 2)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "top_nodes.csv")), 2)
         self.assertTrue(pd.read_csv(self.path / "out" / "cycles.csv").empty)
@@ -113,6 +114,7 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(len(pd.read_csv(self.path / "out" / "role_summary.csv")), 6)
         self.assertTrue(pd.read_csv(self.path / "out" / "top_edges.csv").empty)
         self.assertTrue(pd.read_csv(self.path / "out" / "daily_summary.csv").empty)
+        self.assertTrue(pd.read_csv(self.path / "out" / "boundary_review.csv").empty)
         self.assertTrue((resilience.edges_left == 0).all())
         self.assertTrue((resilience.seed_reach_share == 0).all())
         self.assertEqual(len(pd.read_csv(self.path / "out" / "data_gaps.csv")), 6)

@@ -197,6 +197,12 @@ class PipelineTest(unittest.TestCase):
         day_tx = tx[tx.date == busiest.date]
         self.assertEqual(busiest.unique_senders, day_tx.src.nunique())
         self.assertEqual(busiest.unique_recipients, day_tx.dst.nunique())
+        boundary = pd.read_csv(self.out / "boundary_review.csv")
+        self.assertEqual(len(boundary), int(self.nodes.boundary.sum()))
+        self.assertEqual(boundary["rank"].tolist(), list(range(1, len(boundary) + 1)))
+        self.assertTrue(boundary.p_hidden_outgoing.is_monotonic_decreasing)
+        self.assertTrue((boundary.depth == 4).all())
+        self.assertTrue(boundary.next_request.str.contains("Запросить исходящие").all())
 
     def test_timeline_matches_transactions(self):
         timeline = pd.read_csv(self.out / "timeline.csv")
@@ -233,6 +239,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"roleSummary":[', html)
         self.assertIn('"topEdges":[', html)
         self.assertIn('"dailySummary":[', html)
+        self.assertIn('"boundaryReview":[', html)
         self.assertIn("<canvas", html)
 
     def test_outputs_are_identical_after_input_rows_are_shuffled(self):
@@ -255,7 +262,8 @@ class PipelineTest(unittest.TestCase):
                          "cycles.csv", "routes.csv", "resilience.csv", "data_gaps.csv",
                          "risk_flags.csv", "cluster_flows.csv", "seed_coverage.csv",
                          "components.csv", "amount_bands.csv", "role_summary.csv",
-                         "top_edges.csv", "daily_summary.csv", "timeline.csv", "network.html"):
+                         "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
+                         "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),
