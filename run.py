@@ -175,6 +175,34 @@ def find_cycles(graph: nx.DiGraph, df: pd.DataFrame):
     return df, cycles
 
 
+def daily_timeline(tx: pd.DataFrame):
+    """Per-node daily incoming/outgoing activity for analyst drill-down."""
+    columns = ["gid", "date", "in_tx", "out_tx", "in_kzt", "out_kzt",
+               "net_kzt", "unique_payers", "unique_recipients"]
+    if tx.empty:
+        return pd.DataFrame(columns=columns)
+
+    dated = tx.copy()
+    dated["date"] = dated.date.dt.date.astype(str)
+    incoming = dated.groupby(["dst", "date"], as_index=False).agg(
+        in_tx=("sum_kzt", "size"),
+        in_kzt=("sum_kzt", "sum"),
+        unique_payers=("src", "nunique"),
+    ).rename(columns={"dst": "gid"})
+    outgoing = dated.groupby(["src", "date"], as_index=False).agg(
+        out_tx=("sum_kzt", "size"),
+        out_kzt=("sum_kzt", "sum"),
+        unique_recipients=("dst", "nunique"),
+    ).rename(columns={"src": "gid"})
+    timeline = incoming.merge(outgoing, on=["gid", "date"], how="outer").fillna(0)
+    for column in ("in_tx", "out_tx", "unique_payers", "unique_recipients"):
+        timeline[column] = timeline[column].astype(int)
+    for column in ("in_kzt", "out_kzt"):
+        timeline[column] = timeline[column].round(2)
+    timeline["net_kzt"] = (timeline.in_kzt - timeline.out_kzt).round(2)
+    return timeline[columns].sort_values(["gid", "date"]).reset_index(drop=True)
+
+
 def flag_attention(df: pd.DataFrame):
     """Short, checkable hints for the analyst; they do not change role or priority."""
     depth_cut = df.groupby("depth").in_deg.transform(lambda s: s.quantile(.99))
@@ -343,7 +371,7 @@ def data_gaps(df: pd.DataFrame, graph: nx.DiGraph):
 
 
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
-                  resilience: pd.DataFrame, gaps: pd.DataFrame, out: Path):
+                  resilience: pd.DataFrame, gaps: pd.DataFrame, timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
@@ -396,6 +424,16 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     cycles.to_csv(out / "cycles.csv", index=False)
     resilience.to_csv(out / "resilience.csv", index=False)
     gaps.to_csv(out / "data_gaps.csv", index=False)
+    timeline.to_csv(out / "timeline.csv", index=False)
+
+    timeline_by_gid = defaultdict(list)
+    for r in timeline.itertuples(index=False):
+        timeline_by_gid[int(r.gid)].append({
+            "date": r.date, "inTx": int(r.in_tx), "outTx": int(r.out_tx),
+            "inKzt": float(r.in_kzt), "outKzt": float(r.out_kzt),
+            "netKzt": float(r.net_kzt),
+            "payers": int(r.unique_payers), "recipients": int(r.unique_recipients),
+        })
 
     # Readable in a browser without a local server or CDN.
     payload = {"nodes": [{"gid": str(r.gid), "role": r.role, "cluster": int(r.cluster_id),
@@ -405,7 +443,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                           "inKzt": float(r.in_kzt), "outKzt": float(r.out_kzt),
                           "seedReach": int(r.seed_reach), "boundary": bool(r.boundary),
                           "cycles": int(r.cycles), "syncPayers": int(r.sync_payers_max),
-                          "pHidden": float(r.p_hidden_outgoing), "attention": r.attention}
+                          "pHidden": float(r.p_hidden_outgoing), "attention": r.attention,
+                          "timeline": timeline_by_gid[int(r.gid)]}
                          for r in df.itertuples(index=False)],
                "edges": [{"src": str(r.src), "dst": str(r.dst), "amount": float(r.sum_kzt), "count": int(r.n_tx)}
                          for r in edges.itertuples(index=False)]}
@@ -420,7 +459,8 @@ def build_model(data: Path):
     graph, df = graph_features(nodes, edges, tx)
     df, cycles = find_cycles(graph, df)
     df = flag_attention(rank_nodes(score_roles(assign_clusters(graph, df, edges))))
-    return nodes, edges, graph, df, cycles
+    timeline = daily_timeline(tx)
+    return nodes, edges, graph, df, cycles, timeline
 
 
 def main():
@@ -428,15 +468,16 @@ def main():
     parser.add_argument("--data", type=Path, default=ROOT / "data")
     parser.add_argument("--out", type=Path, default=ROOT / "out")
     args = parser.parse_args()
-    nodes, edges, graph, df, cycles = build_model(args.data)
+    nodes, edges, graph, df, cycles, timeline = build_model(args.data)
     resilience = network_resilience(graph, df)
     gaps = data_gaps(df, graph)
-    write_outputs(df, edges, cycles, resilience, gaps, args.out)
+    write_outputs(df, edges, cycles, resilience, gaps, timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()
     print(f"Готово: {len(df)} узлов, {len(edges)} рёбер, {df.cluster_id.nunique()} кластеров")
     print(f"Роли: {df.role.value_counts().to_dict()}")
     print(f"Циклов до {CYCLE_MAX_LEN} переводов: {len(cycles)}; узлов с флагами: {(df.attention != 'нет').sum()}")
+    print(f"Дней активности в timeline.csv: {len(timeline)}")
     print(f"Файлы: {args.out.resolve()}")
 
 

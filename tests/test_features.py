@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from run import graph_features
+from run import daily_timeline, graph_features
 
 
 class GraphFeaturesTest(unittest.TestCase):
@@ -41,6 +41,24 @@ class GraphFeaturesTest(unittest.TestCase):
                 self.assertAlmostEqual(rapid.loc[2], expected)
                 self.assertEqual(rapid.loc[1], 0.0)  # No incoming transfers.
                 self.assertEqual(rapid.loc[3], 0.0)  # No outgoing transfers.
+
+    def test_daily_timeline_splits_incoming_and_outgoing_activity(self):
+        tx = pd.DataFrame([
+            {"src": 1, "dst": 2, "date": pd.Timestamp("2026-07-01 09:00"), "sum_kzt": 100.0},
+            {"src": 3, "dst": 2, "date": pd.Timestamp("2026-07-01 10:00"), "sum_kzt": 200.0},
+            {"src": 2, "dst": 4, "date": pd.Timestamp("2026-07-01 11:00"), "sum_kzt": 50.0},
+            {"src": 2, "dst": 5, "date": pd.Timestamp("2026-07-02 11:00"), "sum_kzt": 75.0},
+        ])
+        rows = daily_timeline(tx).set_index(["gid", "date"])
+        first_day = rows.loc[(2, "2026-07-01")]
+        self.assertEqual(first_day.in_tx, 2)
+        self.assertEqual(first_day.out_tx, 1)
+        self.assertEqual(first_day.in_kzt, 300.0)
+        self.assertEqual(first_day.out_kzt, 50.0)
+        self.assertEqual(first_day.net_kzt, 250.0)
+        self.assertEqual(first_day.unique_payers, 2)
+        self.assertEqual(first_day.unique_recipients, 1)
+        self.assertEqual(rows.loc[(2, "2026-07-02")].net_kzt, -75.0)
 
 
 if __name__ == "__main__":
