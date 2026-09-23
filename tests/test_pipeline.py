@@ -161,6 +161,10 @@ class PipelineTest(unittest.TestCase):
             if lookup[edge.src] != lookup[edge.dst]:
                 expected += edge.sum_kzt
         self.assertTrue(np.isclose(flows.sum_kzt.sum(), expected, atol=.01))
+        seeds = pd.read_csv(self.out / "seed_coverage.csv")
+        self.assertEqual(len(seeds), int(self.nodes.is_seed.sum()))
+        self.assertTrue(seeds.max_depth_reached.between(0, 4).all())
+        self.assertTrue(seeds.reachable_nodes.ge(0).all())
 
     def test_timeline_matches_transactions(self):
         timeline = pd.read_csv(self.out / "timeline.csv")
@@ -191,6 +195,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"clusters":[', html)
         self.assertIn('"clusterFlows":[', html)
         self.assertIn('"gaps":[', html)
+        self.assertIn('"seedCoverage":[', html)
         self.assertIn("<canvas", html)
 
     def test_outputs_are_identical_after_input_rows_are_shuffled(self):
@@ -211,7 +216,8 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             for name in ("nodes_roles.csv", "clusters.csv", "top_nodes.csv",
                          "cycles.csv", "routes.csv", "resilience.csv", "data_gaps.csv",
-                         "risk_flags.csv", "cluster_flows.csv", "timeline.csv", "network.html"):
+                         "risk_flags.csv", "cluster_flows.csv", "seed_coverage.csv",
+                         "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),
