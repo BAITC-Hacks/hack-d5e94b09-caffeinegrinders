@@ -15,7 +15,7 @@ from run import (
     isolated_nodes_report, amount_band_summary, role_summary, top_edge_summary, daily_summary,
     boundary_review, cluster_role_matrix, seed_role_reach, route_node_membership,
     cycle_node_membership, depth_summary, cluster_depth_matrix, role_depth_matrix,
-    write_outputs, daily_timeline, top_counterparties,
+    write_outputs, daily_timeline, role_flows, top_counterparties,
 )
 
 
@@ -114,13 +114,14 @@ class ValidationTest(unittest.TestCase):
         depths = depth_summary(df)
         cluster_depths = cluster_depth_matrix(df)
         role_depths = role_depth_matrix(df)
+        role_flow_rows = role_flows(edges, df)
         counterparties = top_counterparties(edges, df)
         timeline = daily_timeline(tx)
         write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                       seed_report, seed_components, components, component_roles,
                       component_attention, isolated_nodes, amount_bands, roles, top_edges,
                       daily, boundary_queue, cluster_roles, seed_roles, attention_rows, cluster_attention,
-                      route_nodes, cycle_nodes, depths, cluster_depths, role_depths, counterparties,
+                      route_nodes, cycle_nodes, depths, cluster_depths, role_depths, role_flow_rows, counterparties,
                       timeline, self.path / "out")
         self.assertEqual(df.cluster_id.nunique(), 2)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "top_nodes.csv")), 2)
@@ -151,6 +152,7 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(pd.read_csv(self.path / "out" / "depth_summary.csv").n_nodes.sum(), 2)
         self.assertEqual(pd.read_csv(self.path / "out" / "cluster_depths.csv").n_nodes.sum(), 2)
         self.assertEqual(pd.read_csv(self.path / "out" / "role_depths.csv").n_nodes.sum(), 2)
+        self.assertTrue(pd.read_csv(self.path / "out" / "role_flows.csv").empty)
         self.assertTrue(pd.read_csv(self.path / "out" / "top_counterparties.csv").empty)
         self.assertTrue((resilience.edges_left == 0).all())
         self.assertTrue((resilience.seed_reach_share == 0).all())

@@ -287,6 +287,13 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(role_depths.boundary_nodes.sum(), int(self.nodes.boundary.sum()))
         counterparties = pd.read_csv(self.out / "top_counterparties.csv")
         source_edges = pd.read_parquet(ROOT / "data" / "edges.parquet")
+        role_flows = pd.read_csv(self.out / "role_flows.csv")
+        self.assertEqual(round(role_flows.sum_kzt.sum(), 2), round(source_edges.sum_kzt.sum(), 2))
+        self.assertEqual(int(role_flows.n_edges.sum()), len(source_edges))
+        self.assertEqual(int(role_flows.n_tx.sum()), int(source_edges.n_tx.sum()))
+        self.assertTrue(set(role_flows.src_role).issubset(set(self.nodes.role)))
+        self.assertTrue(set(role_flows.dst_role).issubset(set(self.nodes.role)))
+        self.assertTrue(role_flows.sum_kzt.is_monotonic_decreasing)
         directed_edges = set(zip(source_edges.src, source_edges.dst))
         for row in counterparties.itertuples(index=False):
             self.assertLessEqual(row.rank, 3)
@@ -345,6 +352,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"depthSummary":[', html)
         self.assertIn('"clusterDepths":[', html)
         self.assertIn('"roleDepths":[', html)
+        self.assertIn('"roleFlows":[', html)
         self.assertIn('"topCounterparties":[', html)
         self.assertIn("<canvas", html)
 
@@ -373,7 +381,7 @@ class PipelineTest(unittest.TestCase):
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
                          "cluster_roles.csv", "seed_role_reach.csv", "attention_examples.csv",
                          "cluster_attention.csv", "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
-                         "cluster_depths.csv", "role_depths.csv", "top_counterparties.csv",
+                         "cluster_depths.csv", "role_depths.csv", "role_flows.csv", "top_counterparties.csv",
                          "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
