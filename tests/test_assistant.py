@@ -47,6 +47,12 @@ class GraphToolsTest(unittest.TestCase):
         result = self.index.money_paths(edge.src, edge.dst, max_hops=1)
         self.assertEqual(result["shown"][0]["amounts_kzt"], [edge.sum_kzt])
 
+    def test_node_routes(self):
+        gid = self.index.df.sort_values("relay_routes", ascending=False).gid.iloc[0]
+        result = self.index.node_routes(gid)
+        self.assertGreater(result["repeated"], 0)
+        self.assertTrue(all(str(gid) in row["path"].split(" → ") for row in result["shown"]))
+
     def test_unknown_gid(self):
         with self.assertRaises(UnknownGid):
             self.index.node_profile("123")
@@ -84,6 +90,7 @@ class OpenAICompatibleLoopTest(unittest.TestCase):
         first, second = requests
         self.assertEqual(first["model"], "local-model")
         self.assertIn("node_profile", {tool["function"]["name"] for tool in first["tools"]})
+        self.assertIn("node_routes", {tool["function"]["name"] for tool in first["tools"]})
         tool_result = second["messages"][-1]
         self.assertEqual(tool_result["role"], "tool")
         self.assertEqual(json.loads(tool_result["content"])["gid"], gid)

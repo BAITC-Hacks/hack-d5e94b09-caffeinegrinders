@@ -103,6 +103,40 @@ class PipelineTest(unittest.TestCase):
         self.assertTrue((self.nodes.p_hidden_outgoing[~self.nodes.boundary] == 0).all())
         self.assertTrue(self.nodes.attention.str.len().between(1, 200).all())
 
+    def test_routes_are_backed_by_transactions(self):
+        routes = pd.read_csv(self.out / "routes.csv")
+        self.assertGreater(len(routes), 0)
+        self.assertTrue(set(routes.kind).issubset({"repeated", "chain"}))
+        tx = pd.read_parquet(ROOT / "data" / "transactions.parquet")
+        tx["date"] = pd.to_datetime(tx.date)
+        edges = set(zip(tx.src, tx.dst))
+        middles, inner = {}, {}
+        for row in routes.itertuples(index=False):
+            path = [int(x) for x in row.path.split(" → ")]
+            self.assertEqual(row.hops, len(path) - 1)
+            self.assertTrue(all(hop in edges for hop in zip(path, path[1:])))
+            if row.kind == "chain":
+                self.assertEqual(row.hops, 3)
+                for node in path[1:-1]:
+                    inner[node] = inner.get(node, 0) + 1
+                continue
+            a, b, c = path
+            ins = tx[(tx.src == a) & (tx.dst == b)]
+            outs = tx[(tx.src == b) & (tx.dst == c)]
+            relayed = [out for out in outs.itertuples() if any(
+                0 <= (out.date - i.date).days <= 2
+                and .5 * i.sum_kzt <= out.sum_kzt <= 1.05 * i.sum_kzt
+                for i in ins.itertuples())]
+            self.assertGreaterEqual(row.relay_days, 2)
+            self.assertEqual(row.relay_days, len({out.date for out in relayed}))
+            self.assertTrue(np.isclose(row.forwarded_kzt, sum(out.sum_kzt for out in relayed), atol=.01))
+            middles[b] = middles.get(b, 0) + 1
+        lookup = self.nodes.set_index("gid")
+        for gid, count in middles.items():
+            self.assertEqual(lookup.relay_routes[gid], count)
+        for gid, count in inner.items():
+            self.assertEqual(lookup.chain_transits[gid], count)
+
     def test_resilience_and_gaps(self):
         resilience = pd.read_csv(self.out / "resilience.csv")
         self.assertEqual(set(resilience.strategy), {"priority", "random"})
@@ -163,7 +197,8 @@ class PipelineTest(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             for name in ("nodes_roles.csv", "clusters.csv", "top_nodes.csv",
-                         "cycles.csv", "resilience.csv", "data_gaps.csv", "timeline.csv", "network.html"):
+                         "cycles.csv", "routes.csv", "resilience.csv", "data_gaps.csv",
+                         "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),

@@ -17,7 +17,7 @@ NODE_FIELDS = ["role", "role_score", "priority_score", "cluster_id", "depth", "i
                "priority_payers", "priority_incoming", "priority_seed_reach",
                "priority_bridge", "priority_recipients", "priority_rapid",
                "priority_role_factor", "priority_boundary_factor", "priority_seed_factor",
-               "evidence", "attention"]
+               "relay_routes", "chain_transits", "evidence", "attention"]
 
 
 class UnknownGid(ValueError):
@@ -33,7 +33,7 @@ def parse_gid(value) -> int:
 
 class GraphIndex:
     def __init__(self, data: Path):
-        self.nodes, self.edges, self.graph, df, self.cycles, self.timeline = build_model(data)
+        self.nodes, self.edges, self.graph, df, self.cycles, self.routes, self.timeline = build_model(data)
         self.df = df.set_index(df.gid.to_numpy())
         # Rank 1 = highest priority, so answers can say "#3 in the queue".
         order = self.df.sort_values(["priority_score", "gid"], ascending=[False, True]).gid
@@ -55,6 +55,7 @@ class GraphIndex:
         df = self.df
         return {"nodes": len(df), "edges": len(self.edges), "seeds": int(df.is_seed.sum()),
                 "clusters": int(df.cluster_id.nunique()), "cycles_up_to_4": len(self.cycles),
+                "routes": len(self.routes),
                 "boundary_nodes": int(df.boundary.sum()),
                 "roles": {k: int(v) for k, v in df.role.value_counts().items()},
                 "total_kzt": round(float(self.edges.sum_kzt.sum()), 2)}
@@ -138,4 +139,13 @@ class GraphIndex:
         mask = self.cycles.path.map(lambda p: str(gid) in p.split(" → "))
         found = self.cycles[mask]
         return {"gid": str(gid), "total": len(found),
+                "shown": found.head(limit).to_dict(orient="records")}
+
+    def node_routes(self, gid, limit: int = 10) -> dict:
+        gid = self._check(gid)
+        mask = self.routes.path.map(lambda p: str(gid) in p.split(" → "))
+        found = self.routes[mask]
+        return {"gid": str(gid), "total": len(found),
+                "repeated": int((found.kind == "repeated").sum()),
+                "chains": int((found.kind == "chain").sum()),
                 "shown": found.head(limit).to_dict(orient="records")}
