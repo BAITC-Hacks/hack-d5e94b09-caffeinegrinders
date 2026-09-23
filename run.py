@@ -216,6 +216,25 @@ def daily_timeline(tx: pd.DataFrame):
     return timeline[columns].sort_values(["gid", "date"]).reset_index(drop=True)
 
 
+def daily_summary(tx: pd.DataFrame):
+    """Network-level daily visible transaction activity."""
+    columns = ["date", "n_tx", "sum_kzt", "unique_senders", "unique_recipients", "active_nodes"]
+    if tx.empty:
+        return pd.DataFrame(columns=columns)
+    dated = tx.copy()
+    dated["date"] = dated.date.dt.date.astype(str)
+    rows = []
+    for date, group in dated.groupby("date", sort=True):
+        active = pd.concat([group.src, group.dst], ignore_index=True).nunique()
+        rows.append({"date": date,
+                     "n_tx": int(len(group)),
+                     "sum_kzt": round(float(group.sum_kzt.sum()), 2),
+                     "unique_senders": int(group.src.nunique()),
+                     "unique_recipients": int(group.dst.nunique()),
+                     "active_nodes": int(active)})
+    return pd.DataFrame(rows, columns=columns)
+
+
 def find_routes(tx: pd.DataFrame, df: pd.DataFrame):
     """Forwarding routes based on timing and similar transfer amounts.
 
@@ -630,7 +649,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   risk_flags: pd.DataFrame, flows: pd.DataFrame,
                   seed_report: pd.DataFrame, components: pd.DataFrame,
                   amount_bands: pd.DataFrame, roles: pd.DataFrame,
-                  top_edges: pd.DataFrame, timeline: pd.DataFrame, out: Path):
+                  top_edges: pd.DataFrame, daily: pd.DataFrame,
+                  timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
@@ -702,6 +722,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     amount_bands.to_csv(out / "amount_bands.csv", index=False)
     roles.to_csv(out / "role_summary.csv", index=False)
     top_edges.to_csv(out / "top_edges.csv", index=False)
+    daily.to_csv(out / "daily_summary.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
 
     timeline_by_gid = defaultdict(list)
@@ -752,7 +773,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "components": components.to_dict(orient="records"),
                "amountBands": amount_bands.to_dict(orient="records"),
                "roleSummary": roles.to_dict(orient="records"),
-               "topEdges": top_edges.to_dict(orient="records")}
+               "topEdges": top_edges.to_dict(orient="records"),
+               "dailySummary": daily.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     (out / "network.html").write_text(page, encoding="utf-8")
@@ -786,9 +808,10 @@ def main():
     amount_bands = amount_band_summary(tx)
     roles = role_summary(df)
     top_edges = top_edge_summary(edges, df)
+    daily = daily_summary(tx)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                   seed_report, components, amount_bands, roles, top_edges,
-                  timeline, args.out)
+                  daily, timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()
     print(f"Готово: {len(df)} узлов, {len(edges)} рёбер, {df.cluster_id.nunique()} кластеров")
