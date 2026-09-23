@@ -452,9 +452,37 @@ def data_gaps(df: pd.DataFrame, graph: nx.DiGraph):
                          for key, mask, meaning, request in gaps])
 
 
+def risk_flags_summary(df: pd.DataFrame):
+    """Counts of optional AML attention flags, separate from roles and priority."""
+    def examples(mask):
+        rows = df[mask].sort_values(["priority_score", "gid"], ascending=[False, True])
+        return ";".join(str(x) for x in rows.gid.head(5))
+
+    flags = [
+        ("cycle", df.cycles > 0, "узел входит в направленный возвратный поток"),
+        ("relay_route", df.relay_routes > 0, "узел является посредником устойчивого маршрута пересылки"),
+        ("chain_transit", df.chain_transits > 0, "узел является внутренним звеном сквозной цепочки"),
+        ("sync_payers", df.sync_payers_max >= SYNC_PAYERS_MIN,
+         "несколько разных плательщиков в один день"),
+        ("repeat_amount", df.repeat_amount_max >= REPEAT_AMOUNT_MIN,
+         "одна и та же сумма отправлялась многократно"),
+        ("near_threshold", (df.near_threshold_in >= 3) & (df.near_threshold_in >= .5 * df.in_tx),
+         "много входящих переводов у порога 5-10 тыс. KZT"),
+        ("boundary_likely_continues", df.boundary & (df.p_hidden_outgoing >= .5),
+         "граничный узел с вероятным скрытым исходящим продолжением"),
+        ("gives_more_than_received", (df.out_kzt > df.in_kzt) & (df.in_kzt > 0),
+         "исходящий поток выше видимого входа"),
+    ]
+    total = max(len(df), 1)
+    return pd.DataFrame([{"flag": key, "n_nodes": int(mask.sum()),
+                          "share": round(float(mask.sum()) / total, 4),
+                          "meaning": meaning, "example_gids": examples(mask)}
+                         for key, mask, meaning in flags])
+
+
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
-                  timeline: pd.DataFrame, out: Path):
+                  risk_flags: pd.DataFrame, timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
@@ -519,6 +547,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     routes.to_csv(out / "routes.csv", index=False)
     resilience.to_csv(out / "resilience.csv", index=False)
     gaps.to_csv(out / "data_gaps.csv", index=False)
+    risk_flags.to_csv(out / "risk_flags.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
 
     timeline_by_gid = defaultdict(list)
@@ -561,7 +590,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                          for r in edges.itertuples(index=False)],
                "routes": routes.to_dict(orient="records"),
                "clusters": cluster_payload,
-               "gaps": gaps.to_dict(orient="records")}
+               "gaps": gaps.to_dict(orient="records"),
+               "riskFlags": risk_flags.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     (out / "network.html").write_text(page, encoding="utf-8")
@@ -586,7 +616,8 @@ def main():
     nodes, edges, graph, df, cycles, routes, timeline = build_model(args.data)
     resilience = network_resilience(graph, df)
     gaps = data_gaps(df, graph)
-    write_outputs(df, edges, cycles, routes, resilience, gaps, timeline, args.out)
+    risk_flags = risk_flags_summary(df)
+    write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()
     print(f"Готово: {len(df)} узлов, {len(edges)} рёбер, {df.cluster_id.nunique()} кластеров")
