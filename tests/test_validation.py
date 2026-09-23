@@ -11,7 +11,7 @@ from run import (
     find_cycles, find_routes, flag_attention, network_resilience, data_gaps,
     risk_flags_summary, attention_examples, cluster_attention_summary,
     role_attention_summary, depth_attention_summary, attention_overlap_summary,
-    cluster_flows, seed_coverage, component_summary,
+    cluster_flows, cluster_flow_summary, seed_coverage, component_summary,
     seed_component_summary, component_role_matrix, component_attention_summary,
     isolated_nodes_report, amount_band_summary, role_summary, top_edge_summary, daily_summary,
     boundary_review, cluster_role_matrix, seed_role_reach, route_node_membership,
@@ -95,6 +95,7 @@ class ValidationTest(unittest.TestCase):
         gaps = data_gaps(df, graph)
         risk_flags = risk_flags_summary(df)
         flows = cluster_flows(df, edges)
+        cluster_flow_rows = cluster_flow_summary(df, edges)
         seed_report = seed_coverage(graph, df)
         seed_components = seed_component_summary(graph, df, edges)
         components = component_summary(graph, df, edges)
@@ -124,6 +125,7 @@ class ValidationTest(unittest.TestCase):
         counterparties = top_counterparties(edges, df)
         timeline = daily_timeline(tx)
         write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
+                      cluster_flow_rows,
                       seed_report, seed_components, components, component_roles,
                       component_attention, isolated_nodes, amount_bands, roles, top_edges,
                       daily, boundary_queue, cluster_roles, seed_roles, seed_overlap_rows,
@@ -139,6 +141,10 @@ class ValidationTest(unittest.TestCase):
         self.assertTrue(pd.read_csv(self.path / "out" / "timeline.csv").empty)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "risk_flags.csv")), 8)
         self.assertTrue(pd.read_csv(self.path / "out" / "cluster_flows.csv").empty)
+        cluster_flow_rows = pd.read_csv(self.path / "out" / "cluster_flow_summary.csv")
+        self.assertEqual(cluster_flow_rows.n_nodes.sum(), 2)
+        self.assertEqual(cluster_flow_rows.cross_in_kzt.sum(), 0)
+        self.assertEqual(cluster_flow_rows.cross_out_kzt.sum(), 0)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "seed_coverage.csv")), 1)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "seed_components.csv")), 1)
         self.assertEqual(len(pd.read_csv(self.path / "out" / "components.csv")), 2)
