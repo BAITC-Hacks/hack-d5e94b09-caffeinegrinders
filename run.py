@@ -414,15 +414,21 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     (out / "network.html").write_text(page, encoding="utf-8")
 
 
+def build_model(data: Path):
+    """Graph, per-node roles and metrics, and cycles; shared by the CLI and the assistant."""
+    nodes, edges, tx = load_data(data)
+    graph, df = graph_features(nodes, edges, tx)
+    df, cycles = find_cycles(graph, df)
+    df = flag_attention(rank_nodes(score_roles(assign_clusters(graph, df, edges))))
+    return nodes, edges, graph, df, cycles
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, default=ROOT / "data")
     parser.add_argument("--out", type=Path, default=ROOT / "out")
     args = parser.parse_args()
-    nodes, edges, tx = load_data(args.data)
-    graph, df = graph_features(nodes, edges, tx)
-    df, cycles = find_cycles(graph, df)
-    df = flag_attention(rank_nodes(score_roles(assign_clusters(graph, df, edges))))
+    nodes, edges, graph, df, cycles = build_model(args.data)
     resilience = network_resilience(graph, df)
     gaps = data_gaps(df, graph)
     write_outputs(df, edges, cycles, resilience, gaps, args.out)
