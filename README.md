@@ -2,6 +2,18 @@
 
 Локальный инструмент для первичной AML-проверки транзакционной сети. По трём обезличенным parquet-файлам он строит направленный граф, присваивает каждому `gid` объяснимую роль, делит сеть на сообщества и выдаёт список клиентов для углублённой проверки. Роль означает **структурную гипотезу**, а не причастность к преступлению.
 
+## Коротко
+
+Инструмент отвечает на вопрос «кого из 2 248 клиентов смотреть первым и почему».
+
+- **Запуск:** `./run.sh` — около 2,5 секунды от сырых parquet до всех выгрузок и интерактивной схемы.
+- **Фокус смещается с курьеров наверх:** в топ-20 очереди проверки нет ни одного из 81 исходного seed — там 11 кандидатов в координаторы, 5 распределителей, 3 точки консолидации и один транзитный счёт.
+- **Сеть держится на найденных узлах:** изъятие топ-10 по нашему приоритету рвёт 26% связей «seed → узел», изъятие 10 случайных узлов — около 1%.
+- **Ловушки данных учтены:** 444 узла на границе обхода не объявлены конечными получателями, у seed не считается отношение «отдал/получил».
+- **Каждый вывод проверяем:** роль, приоритет и флаги сопровождаются числами в `evidence`, `why` и колонках `priority_*`.
+
+Куда смотреть: `out/top_nodes.csv` — очередь проверки, `out/network.html` — схема сети с поиском по `gid`, раздел [Формальные правила ролей](#формальные-правила-ролей) — пороги, по которым присвоена каждая роль.
+
 ## Запуск одной командой
 
 Нужен Python 3.10+ и доступ к PyPI при первом запуске. Из корня репозитория:
@@ -22,7 +34,7 @@ python -m venv .venv
 
 Если окружение `.venv` уже подготовлено, достаточно последней команды.
 
-Результат находится в `out/`: три обязательные выгрузки `nodes_roles.csv`, `clusters.csv`, `top_nodes.csv`, дополнительные `cycles.csv`, `cycle_nodes.csv`, `routes.csv`, `route_nodes.csv`, `route_edges.csv`, `timeline.csv`, `daily_summary.csv`, `depth_summary.csv`, `risk_flags.csv`, `attention_examples.csv`, `cluster_attention.csv`, `role_attention.csv`, `depth_attention.csv`, `attention_overlap.csv`, `cluster_flows.csv`, `cluster_flow_summary.csv`, `seed_coverage.csv`, `seed_components.csv`, `seed_role_reach.csv`, `seed_overlap.csv`, `seed_attention.csv`, `components.csv`, `component_roles.csv`, `component_attention.csv`, `isolated_nodes.csv`, `amount_bands.csv`, `role_summary.csv`, `role_depths.csv`, `role_flows.csv`, `depth_flows.csv`, `top_edges.csv`, `top_counterparties.csv`, `boundary_review.csv`, `cluster_roles.csv`, `cluster_depths.csv`, `resilience.csv`, `data_gaps.csv` и автономная страница `network.html`. Откройте HTML в браузере как обычный файл. Интернет и сервер для просмотра не нужны. На предоставленных 2 248 узлах прямой расчёт `run.py` занимает менее секунды на тестовой машине; установка пакетов в это время не входит. Целевой предел пересчёта — 5 минут.
+Результат находится в `out/`: три обязательные выгрузки `nodes_roles.csv`, `clusters.csv`, `top_nodes.csv`, дополнительные `cycles.csv`, `cycle_nodes.csv`, `routes.csv`, `route_nodes.csv`, `route_edges.csv`, `timeline.csv`, `daily_summary.csv`, `depth_summary.csv`, `risk_flags.csv`, `attention_examples.csv`, `cluster_attention.csv`, `role_attention.csv`, `depth_attention.csv`, `attention_overlap.csv`, `cluster_flows.csv`, `cluster_flow_summary.csv`, `seed_coverage.csv`, `seed_components.csv`, `seed_role_reach.csv`, `seed_overlap.csv`, `seed_attention.csv`, `components.csv`, `component_roles.csv`, `component_attention.csv`, `isolated_nodes.csv`, `amount_bands.csv`, `role_summary.csv`, `role_depths.csv`, `role_flows.csv`, `depth_flows.csv`, `top_edges.csv`, `top_counterparties.csv`, `boundary_review.csv`, `cluster_roles.csv`, `cluster_depths.csv`, `resilience.csv`, `data_gaps.csv` и автономная страница `network.html`. Откройте HTML в браузере как обычный файл. Интернет и сервер для просмотра не нужны. На предоставленных 2 248 узлах прямой расчёт `run.py` занимает около 2,5 секунды на тестовой машине; установка пакетов в это время не входит. Целевой предел пересчёта по ТЗ — 5 минут.
 
 ## Сценарий аналитика
 
@@ -82,7 +94,7 @@ priority_score = base × role_factor × boundary_factor × seed_factor
 |---|---|
 | `nodes_roles.csv` | Одна строка на каждый входной `gid`; обязательные поля `gid`, `role`, `role_score`, `cluster_id`, `priority_score`, `evidence` и дополнительные проверяемые метрики. |
 | `clusters.csv` | Одна строка на сообщество: `cluster_id`, `n_nodes`, `n_seed`, `sum_kzt_internal`, `top_gids`, `hypothesis`. |
-| `top_nodes.csv` | Очередь из 100 узлов: `rank`, `gid`, `role`, `priority_score`, `why`. |
+| `top_nodes.csv` | Очередь из 100 узлов: `rank`, `gid`, `role`, `priority_score`, `why` и `attention`. |
 | `cycles.csv` | Возвратные потоки: `cycle_id`, `length`, `path`, `bottleneck_kzt`, `n_seed`. |
 | `cycle_nodes.csv` | Нормализованный состав `cycles.csv`: одна строка на узел цикла с позицией, ролью, кластером и bottleneck-суммой. |
 | `routes.csv` | Устойчивые маршруты пересылки и сквозные цепочки: `kind`, `path`, `relay_days`, `forwarded_kzt`, даты и число seed. |
@@ -164,7 +176,7 @@ export OPENAI_MODEL=my-local-model
 .venv/bin/python assistant.py --offline "..."   # без обращения к API
 ```
 
-Также параметры можно передать явно: `assistant.py --base-url http://127.0.0.1:8000/v1 --model my-local-model "..."`.
+Также параметры можно передать явно: `assistant.py --base-url http://127.0.0.1:8000/v1 --model my-local-model "..."`. Шаблон переменных с примерами для Ollama и LM Studio лежит в [.env.example](.env.example); скопируйте его в `.env` и примените командой `set -a; source .env; set +a`. Файл `.env` в репозиторий не попадает.
 
 **Как устроено.** Модель за локальным или внутренним OpenAI-compatible Chat Completions API только планирует запросы и пишет ответ. Каждый факт она берёт из детерминированных инструментов `graph_tools.py`, которые работают на том же графе и тех же ролях, что `run.py`:
 
@@ -192,7 +204,7 @@ export OPENAI_MODEL=my-local-model
 
 ## Проверка и демо на 5 минут
 
-После `./run.sh` проверьте число строк и непустые поля командой:
+После `./run.sh` проверьте число строк и непустые поля командой (69 тестов в 38 файлах: схемы выгрузок, правила ролей, воспроизводимость при перестановке входных строк, граничные случаи инструментов ассистента):
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
