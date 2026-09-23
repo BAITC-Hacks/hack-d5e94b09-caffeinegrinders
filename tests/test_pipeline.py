@@ -107,6 +107,30 @@ class PipelineTest(unittest.TestCase):
         self.assertIn(str(self.top.iloc[0].gid), html)
         self.assertIn("<canvas", html)
 
+    def test_outputs_are_identical_after_input_rows_are_shuffled(self):
+        """Input row order must not change scores, communities or exported bytes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp) / "data"
+            out_dir = Path(tmp) / "out"
+            data_dir.mkdir()
+            for name in ("nodes", "edges", "transactions"):
+                source = pd.read_parquet(ROOT / "data" / f"{name}.parquet")
+                shuffled = source.sample(frac=1, random_state=2026).reset_index(drop=True)
+                shuffled.to_parquet(data_dir / f"{name}.parquet", index=False)
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "run.py"),
+                 "--data", str(data_dir), "--out", str(out_dir)],
+                capture_output=True, text=True, timeout=300,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for name in ("nodes_roles.csv", "clusters.csv", "top_nodes.csv",
+                         "cycles.csv", "resilience.csv", "data_gaps.csv", "network.html"):
+                with self.subTest(file=name):
+                    self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
+                    self.assertEqual((self.out / name).read_bytes(),
+                                     (out_dir / name).read_bytes(),
+                                     f"Shuffling input rows changed {name}")
+
 
 if __name__ == "__main__":
     unittest.main()
