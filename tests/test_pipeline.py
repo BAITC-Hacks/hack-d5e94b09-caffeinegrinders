@@ -203,6 +203,12 @@ class PipelineTest(unittest.TestCase):
         self.assertTrue(boundary.p_hidden_outgoing.is_monotonic_decreasing)
         self.assertTrue((boundary.depth == 4).all())
         self.assertTrue(boundary.next_request.str.contains("Запросить исходящие").all())
+        cluster_roles = pd.read_csv(self.out / "cluster_roles.csv")
+        by_cluster = cluster_roles.groupby("cluster_id").n_nodes.sum().sort_index()
+        expected_by_cluster = self.nodes.groupby("cluster_id").size().sort_index()
+        self.assertEqual(by_cluster.to_dict(), expected_by_cluster.to_dict())
+        self.assertTrue(cluster_roles.share_cluster.between(0, 1).all())
+        self.assertTrue(set(cluster_roles.role).issubset(set(self.nodes.role)))
 
     def test_timeline_matches_transactions(self):
         timeline = pd.read_csv(self.out / "timeline.csv")
@@ -240,6 +246,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"topEdges":[', html)
         self.assertIn('"dailySummary":[', html)
         self.assertIn('"boundaryReview":[', html)
+        self.assertIn('"clusterRoles":[', html)
         self.assertIn("<canvas", html)
 
     def test_outputs_are_identical_after_input_rows_are_shuffled(self):
@@ -263,7 +270,7 @@ class PipelineTest(unittest.TestCase):
                          "risk_flags.csv", "cluster_flows.csv", "seed_coverage.csv",
                          "components.csv", "amount_bands.csv", "role_summary.csv",
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
-                         "timeline.csv", "network.html"):
+                         "cluster_roles.csv", "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),

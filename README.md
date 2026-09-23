@@ -22,7 +22,7 @@ python -m venv .venv
 
 Если окружение `.venv` уже подготовлено, достаточно последней команды.
 
-Результат находится в `out/`: три обязательные выгрузки `nodes_roles.csv`, `clusters.csv`, `top_nodes.csv`, дополнительные `cycles.csv`, `routes.csv`, `timeline.csv`, `daily_summary.csv`, `risk_flags.csv`, `cluster_flows.csv`, `seed_coverage.csv`, `components.csv`, `amount_bands.csv`, `role_summary.csv`, `top_edges.csv`, `boundary_review.csv`, `resilience.csv`, `data_gaps.csv` и автономная страница `network.html`. Откройте HTML в браузере как обычный файл. Интернет и сервер для просмотра не нужны. На предоставленных 2 248 узлах прямой расчёт `run.py` занимает менее секунды на тестовой машине; установка пакетов в это время не входит. Целевой предел пересчёта — 5 минут.
+Результат находится в `out/`: три обязательные выгрузки `nodes_roles.csv`, `clusters.csv`, `top_nodes.csv`, дополнительные `cycles.csv`, `routes.csv`, `timeline.csv`, `daily_summary.csv`, `risk_flags.csv`, `cluster_flows.csv`, `seed_coverage.csv`, `components.csv`, `amount_bands.csv`, `role_summary.csv`, `top_edges.csv`, `boundary_review.csv`, `cluster_roles.csv`, `resilience.csv`, `data_gaps.csv` и автономная страница `network.html`. Откройте HTML в браузере как обычный файл. Интернет и сервер для просмотра не нужны. На предоставленных 2 248 узлах прямой расчёт `run.py` занимает менее секунды на тестовой машине; установка пакетов в это время не входит. Целевой предел пересчёта — 5 минут.
 
 ## Сценарий аналитика
 
@@ -95,6 +95,7 @@ priority_score = base × role_factor × boundary_factor × seed_factor
 | `role_summary.csv` | Сводка по структурным ролям: число узлов, доля сети, seed, граничные узлы, средние скоры, оборот и топовые `gid`. |
 | `top_edges.csv` | До 200 крупнейших видимых пар `src → dst` с суммой, числом операций, ролями и кластерами обоих концов. |
 | `boundary_review.csv` | Очередь граничных узлов 4-го колена для продления обхода: `gid`, входящие связи, сумма, оценка скрытого выхода и следующий запрос. |
+| `cluster_roles.csv` | Матрица «кластер × роль»: число узлов, доля внутри кластера, оборот, средний приоритет и топовые `gid`. |
 | `resilience.csv` | Что остаётся от сети после изъятия топ-N узлов по приоритету и N случайных. |
 | `data_gaps.csv` | Белые пятна выгрузки: `gap`, `n_nodes`, `meaning`, `next_request`, `example_gids`. |
 | `network.html` | Самодостаточный экран с поиском, стрелками, фильтрами по кластеру, роли, флагам, seed, границе обхода и приоритету, окраской ролей, топ-листом, карточками узлов, route explorer с подсветкой маршрутов/циклов, карточкой выбранного кластера, локальной рабочей подборкой, поиском общих источников/получателей, запросами недостающих данных и Markdown-отчётом аналитика. |
