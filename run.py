@@ -511,6 +511,46 @@ def risk_flags_summary(df: pd.DataFrame):
                          for key, mask, meaning in flags])
 
 
+def attention_examples(df: pd.DataFrame):
+    """One row per node and optional attention flag for transparent review."""
+    columns = ["flag", "gid", "role", "cluster_id", "priority_score",
+               "metric_value", "meaning", "evidence", "attention"]
+    flags = [
+        ("cycle", df.cycles > 0, df.cycles, "узел входит в направленный возвратный поток"),
+        ("relay_route", df.relay_routes > 0, df.relay_routes,
+         "узел является посредником устойчивого маршрута пересылки"),
+        ("chain_transit", df.chain_transits > 0, df.chain_transits,
+         "узел является внутренним звеном сквозной цепочки"),
+        ("sync_payers", df.sync_payers_max >= SYNC_PAYERS_MIN, df.sync_payers_max,
+         "несколько разных плательщиков в один день"),
+        ("repeat_amount", df.repeat_amount_max >= REPEAT_AMOUNT_MIN, df.repeat_amount_max,
+         "одна и та же сумма отправлялась многократно"),
+        ("near_threshold", (df.near_threshold_in >= 3) & (df.near_threshold_in >= .5 * df.in_tx),
+         df.near_threshold_in, "много входящих переводов у порога 5-10 тыс. KZT"),
+        ("boundary_likely_continues", df.boundary & (df.p_hidden_outgoing >= .5),
+         df.p_hidden_outgoing, "граничный узел с вероятным скрытым исходящим продолжением"),
+        ("gives_more_than_received", (df.out_kzt > df.in_kzt) & (df.in_kzt > 0),
+         df.out_kzt - df.in_kzt, "исходящий поток выше видимого входа"),
+    ]
+    rows = []
+    for flag, mask, values, meaning in flags:
+        group = df[mask].copy()
+        if group.empty:
+            continue
+        group["metric_value"] = values[mask].round(6)
+        for row in group.sort_values(["priority_score", "gid"], ascending=[False, True]).itertuples(index=False):
+            rows.append({"flag": flag,
+                         "gid": int(row.gid),
+                         "role": row.role,
+                         "cluster_id": int(row.cluster_id),
+                         "priority_score": round(float(row.priority_score), 6),
+                         "metric_value": float(row.metric_value),
+                         "meaning": meaning,
+                         "evidence": row.evidence,
+                         "attention": row.attention})
+    return pd.DataFrame(rows, columns=columns)
+
+
 def cluster_flows(df: pd.DataFrame, edges: pd.DataFrame):
     """Aggregated transfers between clusters for ingress/egress review."""
     cluster_of = dict(zip(df.gid, df.cluster_id))
@@ -683,6 +723,107 @@ def cluster_role_matrix(df: pd.DataFrame):
     ).reset_index(drop=True)
 
 
+def seed_role_reach(graph: nx.DiGraph, df: pd.DataFrame):
+    """Per-seed reachable role mix within the documented four-transfer horizon."""
+    role_cols = [f"n_{role}" for role in ROLE_ORDER]
+    columns = ["seed_gid", "cluster_id", "reachable_nodes", "max_depth_reached",
+               *role_cols, "boundary_nodes", "attention_nodes", "top_reachable_gids"]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    lookup = df.set_index("gid")
+    rows = []
+    for seed in df.loc[df.is_seed, "gid"].sort_values():
+        seen = nx.single_source_shortest_path_length(graph, int(seed), cutoff=4)
+        reachable = sorted(node for node in seen if node != int(seed))
+        group = lookup.loc[reachable] if reachable else df.iloc[:0]
+        counts = group.role.value_counts().to_dict() if len(group) else {}
+        leaders = group.sort_values(["priority_score", "gid"], ascending=[False, True]).head(5)
+        row = {"seed_gid": int(seed),
+               "cluster_id": int(lookup.loc[seed, "cluster_id"]),
+               "reachable_nodes": int(len(reachable)),
+               "max_depth_reached": max(seen.values(), default=0),
+               "boundary_nodes": int(group.boundary.sum()) if len(group) else 0,
+               "attention_nodes": int((group.attention != "нет").sum()) if len(group) else 0,
+               "top_reachable_gids": ";".join(str(int(x)) for x in leaders.index)}
+        row.update({f"n_{role}": int(counts.get(role, 0)) for role in ROLE_ORDER})
+        rows.append(row)
+    return pd.DataFrame(rows, columns=columns)
+
+
+def route_node_membership(routes: pd.DataFrame, df: pd.DataFrame):
+    """Explode route paths into one row per route node and position."""
+    columns = ["route_id", "kind", "position", "gid", "role", "cluster_id",
+               "is_seed", "priority_score", "path"]
+    if routes.empty:
+        return pd.DataFrame(columns=columns)
+    lookup = df.set_index("gid")
+    rows = []
+    for route in routes.itertuples(index=False):
+        path = [int(part.strip()) for part in route.path.split("→")]
+        for position, gid in enumerate(path, start=1):
+            meta = lookup.loc[gid]
+            rows.append({"route_id": int(route.route_id),
+                         "kind": route.kind,
+                         "position": position,
+                         "gid": gid,
+                         "role": meta.role,
+                         "cluster_id": int(meta.cluster_id),
+                         "is_seed": bool(meta.is_seed),
+                         "priority_score": round(float(meta.priority_score), 6),
+                         "path": route.path})
+    return pd.DataFrame(rows, columns=columns)
+
+
+def cycle_node_membership(cycles: pd.DataFrame, df: pd.DataFrame):
+    """Explode cycle paths into one row per cycle node and position."""
+    columns = ["cycle_id", "position", "gid", "role", "cluster_id", "is_seed",
+               "priority_score", "bottleneck_kzt", "path"]
+    if cycles.empty:
+        return pd.DataFrame(columns=columns)
+    lookup = df.set_index("gid")
+    rows = []
+    for cycle in cycles.itertuples(index=False):
+        path = [int(part.strip()) for part in cycle.path.split("→")]
+        if len(path) > 1 and path[0] == path[-1]:
+            path = path[:-1]
+        for position, gid in enumerate(path, start=1):
+            meta = lookup.loc[gid]
+            rows.append({"cycle_id": int(cycle.cycle_id),
+                         "position": position,
+                         "gid": gid,
+                         "role": meta.role,
+                         "cluster_id": int(meta.cluster_id),
+                         "is_seed": bool(meta.is_seed),
+                         "priority_score": round(float(meta.priority_score), 6),
+                         "bottleneck_kzt": round(float(cycle.bottleneck_kzt), 2),
+                         "path": cycle.path})
+    return pd.DataFrame(rows, columns=columns)
+
+
+def depth_summary(df: pd.DataFrame):
+    """Overview by traversal depth, including the documented boundary layer."""
+    columns = ["depth", "n_nodes", "share_nodes", "n_seed", "boundary_nodes",
+               "in_kzt", "out_kzt", "avg_priority_score", "attention_nodes",
+               "top_gids"]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    rows = []
+    total = len(df)
+    for depth, group in df.groupby("depth", sort=True):
+        leaders = group.sort_values(["priority_score", "gid"], ascending=[False, True]).head(5)
+        rows.append({"depth": int(depth),
+                     "n_nodes": int(len(group)),
+                     "share_nodes": round(len(group) / total, 4),
+                     "n_seed": int(group.is_seed.sum()),
+                     "boundary_nodes": int(group.boundary.sum()),
+                     "in_kzt": round(float(group.in_kzt.sum()), 2),
+                     "out_kzt": round(float(group.out_kzt.sum()), 2),
+                     "avg_priority_score": round(float(group.priority_score.mean()), 6),
+                     "attention_nodes": int((group.attention != "нет").sum()),
+                     "top_gids": ";".join(str(x) for x in leaders.gid)})
+    return pd.DataFrame(rows, columns=columns)
+
+
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
                   risk_flags: pd.DataFrame, flows: pd.DataFrame,
@@ -690,7 +831,9 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   amount_bands: pd.DataFrame, roles: pd.DataFrame,
                   top_edges: pd.DataFrame, daily: pd.DataFrame,
                   boundary_queue: pd.DataFrame, cluster_roles: pd.DataFrame,
-                  timeline: pd.DataFrame, out: Path):
+                  seed_roles: pd.DataFrame, attention_rows: pd.DataFrame,
+                  route_nodes: pd.DataFrame, cycle_nodes: pd.DataFrame,
+                  depths: pd.DataFrame, timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
@@ -765,6 +908,11 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     daily.to_csv(out / "daily_summary.csv", index=False)
     boundary_queue.to_csv(out / "boundary_review.csv", index=False)
     cluster_roles.to_csv(out / "cluster_roles.csv", index=False)
+    seed_roles.to_csv(out / "seed_role_reach.csv", index=False)
+    attention_rows.to_csv(out / "attention_examples.csv", index=False)
+    route_nodes.to_csv(out / "route_nodes.csv", index=False)
+    cycle_nodes.to_csv(out / "cycle_nodes.csv", index=False)
+    depths.to_csv(out / "depth_summary.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
 
     timeline_by_gid = defaultdict(list)
@@ -818,7 +966,12 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "topEdges": top_edges.to_dict(orient="records"),
                "dailySummary": daily.to_dict(orient="records"),
                "boundaryReview": boundary_queue.to_dict(orient="records"),
-               "clusterRoles": cluster_roles.to_dict(orient="records")}
+               "clusterRoles": cluster_roles.to_dict(orient="records"),
+               "seedRoleReach": seed_roles.to_dict(orient="records"),
+               "attentionExamples": attention_rows.to_dict(orient="records"),
+               "routeNodes": route_nodes.to_dict(orient="records"),
+               "cycleNodes": cycle_nodes.to_dict(orient="records"),
+               "depthSummary": depths.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     (out / "network.html").write_text(page, encoding="utf-8")
@@ -855,9 +1008,15 @@ def main():
     daily = daily_summary(tx)
     boundary_queue = boundary_review(df)
     cluster_roles = cluster_role_matrix(df)
+    seed_roles = seed_role_reach(graph, df)
+    attention_rows = attention_examples(df)
+    route_nodes = route_node_membership(routes, df)
+    cycle_nodes = cycle_node_membership(cycles, df)
+    depths = depth_summary(df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                   seed_report, components, amount_bands, roles, top_edges,
-                  daily, boundary_queue, cluster_roles, timeline, args.out)
+                  daily, boundary_queue, cluster_roles, seed_roles, attention_rows,
+                  route_nodes, cycle_nodes, depths, timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()
     print(f"Готово: {len(df)} узлов, {len(edges)} рёбер, {df.cluster_id.nunique()} кластеров")

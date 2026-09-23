@@ -96,6 +96,13 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(row.n_seed, len(set(path) & seeds))
         in_cycles = set(int(x) for path in cycles.path for x in path.split(" → "))
         self.assertEqual(in_cycles, set(self.nodes.gid[self.nodes.cycles > 0]))
+        cycle_nodes = pd.read_csv(self.out / "cycle_nodes.csv")
+        self.assertEqual(cycle_nodes.cycle_id.nunique(), len(cycles))
+        by_cycle = cycle_nodes.groupby("cycle_id").size()
+        for row in cycles.set_index("cycle_id").itertuples():
+            self.assertEqual(by_cycle.loc[row.Index], row.length)
+        self.assertTrue(set(cycle_nodes.gid).issubset(set(self.nodes.gid)))
+        self.assertTrue(cycle_nodes.position.ge(1).all())
 
     def test_boundary_estimate_and_flags(self):
         boundary = self.nodes[self.nodes.boundary]
@@ -136,6 +143,13 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(lookup.relay_routes[gid], count)
         for gid, count in inner.items():
             self.assertEqual(lookup.chain_transits[gid], count)
+        route_nodes = pd.read_csv(self.out / "route_nodes.csv")
+        self.assertEqual(route_nodes.route_id.nunique(), len(routes))
+        by_route = route_nodes.groupby("route_id").size()
+        for row in routes.set_index("route_id").itertuples():
+            self.assertEqual(by_route.loc[row.Index], row.hops + 1)
+        self.assertTrue(set(route_nodes.gid).issubset(set(self.nodes.gid)))
+        self.assertTrue(route_nodes.position.ge(1).all())
 
     def test_resilience_and_gaps(self):
         resilience = pd.read_csv(self.out / "resilience.csv")
@@ -154,6 +168,12 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(flags.loc["cycle", "n_nodes"], (self.nodes.cycles > 0).sum())
         self.assertEqual(flags.loc["relay_route", "n_nodes"], (self.nodes.relay_routes > 0).sum())
         self.assertTrue(flags.share.between(0, 1).all())
+        attention_examples = pd.read_csv(self.out / "attention_examples.csv")
+        counts = attention_examples.groupby("flag").gid.nunique().to_dict()
+        for flag, row in flags.iterrows():
+            self.assertEqual(counts.get(flag, 0), row.n_nodes)
+        self.assertTrue(attention_examples.metric_value.notna().all())
+        self.assertTrue(attention_examples.evidence.str.len().between(1, 200).all())
         flows = pd.read_csv(self.out / "cluster_flows.csv")
         lookup = dict(zip(self.nodes.gid, self.nodes.cluster_id))
         expected = 0.0
@@ -209,6 +229,20 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(by_cluster.to_dict(), expected_by_cluster.to_dict())
         self.assertTrue(cluster_roles.share_cluster.between(0, 1).all())
         self.assertTrue(set(cluster_roles.role).issubset(set(self.nodes.role)))
+        seed_roles = pd.read_csv(self.out / "seed_role_reach.csv")
+        role_cols = ["n_coordinator", "n_consolidator", "n_distributor",
+                     "n_transit", "n_terminal", "n_peripheral"]
+        self.assertEqual(len(seed_roles), int(self.nodes.is_seed.sum()))
+        coverage = seeds.set_index("seed_gid")
+        for row in seed_roles.itertuples(index=False):
+            self.assertEqual(row.reachable_nodes, coverage.loc[row.seed_gid, "reachable_nodes"])
+        self.assertTrue((seed_roles[role_cols].sum(axis=1) == seed_roles.reachable_nodes).all())
+        self.assertTrue(seed_roles.max_depth_reached.between(0, 4).all())
+        depths = pd.read_csv(self.out / "depth_summary.csv").set_index("depth")
+        self.assertEqual(depths.n_nodes.sum(), len(self.nodes))
+        self.assertTrue(np.isclose(depths.share_nodes.sum(), 1.0, atol=.001))
+        self.assertEqual(depths.loc[4, "boundary_nodes"], int(self.nodes.boundary.sum()))
+        self.assertEqual(depths.loc[0, "n_seed"], int(self.nodes[self.nodes.depth == 0].is_seed.sum()))
 
     def test_timeline_matches_transactions(self):
         timeline = pd.read_csv(self.out / "timeline.csv")
@@ -247,6 +281,11 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"dailySummary":[', html)
         self.assertIn('"boundaryReview":[', html)
         self.assertIn('"clusterRoles":[', html)
+        self.assertIn('"seedRoleReach":[', html)
+        self.assertIn('"attentionExamples":[', html)
+        self.assertIn('"routeNodes":[', html)
+        self.assertIn('"cycleNodes":[', html)
+        self.assertIn('"depthSummary":[', html)
         self.assertIn("<canvas", html)
 
     def test_outputs_are_identical_after_input_rows_are_shuffled(self):
@@ -270,7 +309,9 @@ class PipelineTest(unittest.TestCase):
                          "risk_flags.csv", "cluster_flows.csv", "seed_coverage.csv",
                          "components.csv", "amount_bands.csv", "role_summary.csv",
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
-                         "cluster_roles.csv", "timeline.csv", "network.html"):
+                         "cluster_roles.csv", "seed_role_reach.csv", "attention_examples.csv",
+                         "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
+                         "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),

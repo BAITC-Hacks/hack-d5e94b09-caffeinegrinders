@@ -22,7 +22,7 @@ python -m venv .venv
 
 Если окружение `.venv` уже подготовлено, достаточно последней команды.
 
-Результат находится в `out/`: три обязательные выгрузки `nodes_roles.csv`, `clusters.csv`, `top_nodes.csv`, дополнительные `cycles.csv`, `routes.csv`, `timeline.csv`, `daily_summary.csv`, `risk_flags.csv`, `cluster_flows.csv`, `seed_coverage.csv`, `components.csv`, `amount_bands.csv`, `role_summary.csv`, `top_edges.csv`, `boundary_review.csv`, `cluster_roles.csv`, `resilience.csv`, `data_gaps.csv` и автономная страница `network.html`. Откройте HTML в браузере как обычный файл. Интернет и сервер для просмотра не нужны. На предоставленных 2 248 узлах прямой расчёт `run.py` занимает менее секунды на тестовой машине; установка пакетов в это время не входит. Целевой предел пересчёта — 5 минут.
+Результат находится в `out/`: три обязательные выгрузки `nodes_roles.csv`, `clusters.csv`, `top_nodes.csv`, дополнительные `cycles.csv`, `cycle_nodes.csv`, `routes.csv`, `route_nodes.csv`, `timeline.csv`, `daily_summary.csv`, `depth_summary.csv`, `risk_flags.csv`, `attention_examples.csv`, `cluster_flows.csv`, `seed_coverage.csv`, `seed_role_reach.csv`, `components.csv`, `amount_bands.csv`, `role_summary.csv`, `top_edges.csv`, `boundary_review.csv`, `cluster_roles.csv`, `resilience.csv`, `data_gaps.csv` и автономная страница `network.html`. Откройте HTML в браузере как обычный файл. Интернет и сервер для просмотра не нужны. На предоставленных 2 248 узлах прямой расчёт `run.py` занимает менее секунды на тестовой машине; установка пакетов в это время не входит. Целевой предел пересчёта — 5 минут.
 
 ## Сценарий аналитика
 
@@ -84,12 +84,17 @@ priority_score = base × role_factor × boundary_factor × seed_factor
 | `clusters.csv` | Одна строка на сообщество: `cluster_id`, `n_nodes`, `n_seed`, `sum_kzt_internal`, `top_gids`, `hypothesis`. |
 | `top_nodes.csv` | Очередь из 100 узлов: `rank`, `gid`, `role`, `priority_score`, `why`. |
 | `cycles.csv` | Возвратные потоки: `cycle_id`, `length`, `path`, `bottleneck_kzt`, `n_seed`. |
+| `cycle_nodes.csv` | Нормализованный состав `cycles.csv`: одна строка на узел цикла с позицией, ролью, кластером и bottleneck-суммой. |
 | `routes.csv` | Устойчивые маршруты пересылки и сквозные цепочки: `kind`, `path`, `relay_days`, `forwarded_kzt`, даты и число seed. |
+| `route_nodes.csv` | Нормализованный состав `routes.csv`: одна строка на узел маршрута с позицией, ролью, кластером, seed-флагом и priority. |
 | `timeline.csv` | Дневная активность по каждому `gid`: входы, выходы, оборот, чистый поток и число уникальных контрагентов за день. |
 | `daily_summary.csv` | Дневная активность всей видимой сети: число операций, сумма, уникальные отправители, получатели и активные узлы. |
+| `depth_summary.csv` | Сводка по коленям обхода 0–4: число узлов, seed, граница выборки, оборот, средний приоритет и топовые `gid`. |
 | `risk_flags.csv` | Сводка optional-флагов внимания: число узлов, доля, смысл и топовые примеры `gid`. |
+| `attention_examples.csv` | Детализация `risk_flags.csv`: одна строка на пару `flag` + `gid` с метрикой, ролью, кластером, `evidence` и `attention`. |
 | `cluster_flows.csv` | Межкластерные потоки: `src_cluster`, `dst_cluster`, сумма, число рёбер и транзакций. |
 | `seed_coverage.csv` | Покрытие каждого seed: достижимые узлы за 4 перевода, прямые получатели, прямой исходящий поток и кластер. |
+| `seed_role_reach.csv` | Для каждого seed: сколько достижимых за 4 перевода узлов попадает в каждую структурную роль, плюс граничные и флаговые узлы. |
 | `components.csv` | Слабосвязные фрагменты сети: размер, seed, внутренний оборот, число рёбер, топовые `gid` и признак главной компоненты. |
 | `amount_bands.csv` | Распределение транзакций по фиксированным диапазонам KZT: число переводов, сумма и доли по количеству и обороту. |
 | `role_summary.csv` | Сводка по структурным ролям: число узлов, доля сети, seed, граничные узлы, средние скоры, оборот и топовые `gid`. |
