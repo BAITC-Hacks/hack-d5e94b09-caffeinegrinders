@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """AML analyst assistant: a natural-language question -> an answer grounded in the graph.
 
-Claude only plans queries and writes the answer; every fact comes from deterministic
-tools in graph_tools.py. Without API access the assistant falls back to the same tools
-with a rule-based choice of query.
+An OpenAI-compatible LLM only plans queries and writes the answer; every fact comes
+from deterministic tools in graph_tools.py. Without a configured endpoint the
+assistant falls back to the same tools with a rule-based choice of query.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -17,7 +18,6 @@ from pathlib import Path
 from graph_tools import GraphIndex, UnknownGid
 
 ROOT = Path(__file__).resolve().parent
-MODEL = "claude-opus-5"
 GID_PATTERN = re.compile(r"\b\d{12,20}\b")
 
 SYSTEM = """Ты — ассистент AML-аналитика банка. Данные: обезличенный граф внутрибанковских \
@@ -38,142 +38,140 @@ def dumps(value) -> str:
     return json.dumps(value, ensure_ascii=False, default=str)
 
 
-def make_tools(index: GraphIndex):
-    from anthropic import beta_tool
-
-    def safe(call):
-        try:
-            return dumps(call())
-        except UnknownGid as error:
-            return dumps({"error": str(error)})
-
-    @beta_tool
-    def node_profile(gid: str) -> str:
-        """Role, priority rank, metrics, evidence and attention flags of one client.
-
-        Args:
-            gid: Client identifier, digits only.
-        """
-        return safe(lambda: index.node_profile(gid))
-
-    @beta_tool
-    def counterparties(gid: str, direction: str = "both", limit: int = 15) -> str:
-        """Direct payers ("in") and/or recipients ("out") of a client, largest sums first.
-
-        Args:
-            gid: Client identifier.
-            direction: "in", "out" or "both".
-            limit: Maximum rows to return.
-        """
-        return safe(lambda: index.counterparties(gid, direction, limit))
-
-    @beta_tool
-    def shared_counterparties(gids: list[str], direction: str = "downstream", max_hops: int = 3,
-                              limit: int = 10) -> str:
-        """Clients connected to several given gids through chains of transfers.
-
-        "downstream" finds who receives money originating from the given gids (who collects it);
-        "upstream" finds who sends money that reaches them (common sources). With one gid it lists
-        everything reachable. Sorted by how many of the given gids are connected, then hops.
-
-        Args:
-            gids: Client identifiers to start from.
-            direction: "downstream" or "upstream".
-            max_hops: Maximum transfers in a chain, 1-4.
-            limit: Maximum rows to return.
-        """
-        return safe(lambda: index.shared_counterparties(gids, direction, max(1, min(max_hops, 4)), limit))
-
-    @beta_tool
-    def money_paths(src: str, dst: str, max_hops: int = 4) -> str:
-        """Directed transfer chains from one client to another with the amount on each hop.
-
-        Args:
-            src: Sender gid.
-            dst: Receiver gid.
-            max_hops: Maximum transfers in a chain, 1-6.
-        """
-        return safe(lambda: index.money_paths(src, dst, max(1, min(max_hops, 6))))
-
-    @beta_tool
-    def top_nodes(role: str = "", cluster_id: int = -1, flagged_only: bool = False, limit: int = 10) -> str:
-        """Clients in priority order, optionally filtered.
-
-        Args:
-            role: "" for any, or coordinator, consolidator, distributor, transit, terminal, peripheral.
-            cluster_id: -1 for any cluster.
-            flagged_only: Only clients with attention flags (cycles, same-day payers, splitting).
-            limit: Maximum rows to return.
-        """
-        return safe(lambda: index.top_nodes(role or None, None if cluster_id < 0 else cluster_id,
-                                            flagged_only, limit))
-
-    @beta_tool
-    def cluster_summary(cluster_id: int) -> str:
-        """Size, seeds, internal turnover, role mix and top clients of a cluster.
-
-        Args:
-            cluster_id: Cluster number from node_profile.
-        """
-        return safe(lambda: index.cluster_summary(cluster_id))
-
-    @beta_tool
-    def node_cycles(gid: str, limit: int = 5) -> str:
-        """Return flows (directed cycles of up to 4 transfers) passing through a client.
-
-        Args:
-            gid: Client identifier.
-            limit: Maximum cycles to return.
-        """
-        return safe(lambda: index.node_cycles(gid, limit))
-
-    return [node_profile, counterparties, shared_counterparties, money_paths,
-            top_nodes, cluster_summary, node_cycles]
+def function_tool(name: str, description: str, properties: dict, required: list[str] | None = None):
+    """Build the standard Chat Completions function-tool schema."""
+    return {"type": "function", "function": {"name": name, "description": description,
+            "parameters": {"type": "object", "properties": properties,
+                           "required": required or [], "additionalProperties": False}}}
 
 
-class MissingCredentials(RuntimeError):
+GID = {"type": "string", "description": "Client identifier, digits only."}
+LIMIT = {"type": "integer", "minimum": 1, "maximum": 50}
+TOOL_DEFINITIONS = [
+    function_tool("node_profile", "Role, priority, metrics, evidence and flags of one client.",
+                  {"gid": GID}, ["gid"]),
+    function_tool("counterparties", "Direct payers and/or recipients, largest sums first.",
+                  {"gid": GID, "direction": {"type": "string", "enum": ["in", "out", "both"]},
+                   "limit": LIMIT}, ["gid"]),
+    function_tool("shared_counterparties", "Common downstream recipients or upstream sources within N transfers.",
+                  {"gids": {"type": "array", "items": GID, "minItems": 1},
+                   "direction": {"type": "string", "enum": ["downstream", "upstream"]},
+                   "max_hops": {"type": "integer", "minimum": 1, "maximum": 4}, "limit": LIMIT},
+                  ["gids"]),
+    function_tool("money_paths", "Directed transfer chains between two clients, with amounts per hop.",
+                  {"src": GID, "dst": GID,
+                   "max_hops": {"type": "integer", "minimum": 1, "maximum": 6}}, ["src", "dst"]),
+    function_tool("top_nodes", "Clients in priority order, optionally filtered.",
+                  {"role": {"type": "string", "enum": ["coordinator", "consolidator", "distributor",
+                                                            "transit", "terminal", "peripheral"]},
+                   "cluster_id": {"type": "integer", "minimum": 1},
+                   "flagged_only": {"type": "boolean"}, "limit": LIMIT}),
+    function_tool("cluster_summary", "Size, seeds, turnover, roles and leaders of one cluster.",
+                  {"cluster_id": {"type": "integer", "minimum": 1}}, ["cluster_id"]),
+    function_tool("node_cycles", "Directed cycles of up to four transfers through one client.",
+                  {"gid": GID, "limit": LIMIT}, ["gid"]),
+]
+
+
+class MissingConfiguration(RuntimeError):
     pass
 
 
-class ClaudeAssistant:
-    def __init__(self, index: GraphIndex, model: str, client=None):
-        import anthropic
+class OpenAICompatibleAssistant:
+    """Tool-calling loop over an explicitly configured OpenAI-compatible endpoint."""
 
-        self.client = client or anthropic.Anthropic()
-        # Credentials come from ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN or an `ant auth login`
-        # profile (token cache); without any of them the first request would fail.
-        if not (self.client.api_key or self.client.auth_token or getattr(self.client, "_token_cache", None)):
-            raise MissingCredentials("не заданы ANTHROPIC_API_KEY или профиль ant auth login")
+    def __init__(self, index: GraphIndex, model: str, base_url: str | None = None,
+                 api_key: str | None = None, client=None):
+        if not model:
+            raise MissingConfiguration("не задана модель (--model или OPENAI_MODEL)")
+        if client is None:
+            if not base_url:
+                raise MissingConfiguration("не задан OPENAI_BASE_URL; публичный API не используется автоматически")
+            from openai import OpenAI
+            # Local servers commonly require no authentication, while the SDK requires
+            # a nonempty value. Internal gateways can provide their token via OPENAI_API_KEY.
+            self.client = OpenAI(base_url=base_url,
+                                 api_key=api_key or os.environ.get("OPENAI_API_KEY") or "not-required")
+        else:
+            self.client = client
         self.model = model
-        self.tools = make_tools(index)
+        self.index = index
+        self.tools = TOOL_DEFINITIONS
         self.system = SYSTEM.format(overview=dumps(index.overview()))
         self.history: list = []
 
+    @staticmethod
+    def _limit(value, default):
+        return max(1, min(int(value if value is not None else default), 50))
+
+    def _call_tool(self, name: str, arguments: dict) -> str:
+        """Validate model-supplied arguments and execute only known read-only tools."""
+        try:
+            if name == "node_profile":
+                result = self.index.node_profile(arguments["gid"])
+            elif name == "counterparties":
+                direction = arguments.get("direction", "both")
+                if direction not in {"in", "out", "both"}:
+                    raise ValueError("direction must be in, out or both")
+                result = self.index.counterparties(arguments["gid"], direction,
+                                                   self._limit(arguments.get("limit"), 15))
+            elif name == "shared_counterparties":
+                direction = arguments.get("direction", "downstream")
+                if direction not in {"downstream", "upstream"}:
+                    raise ValueError("direction must be downstream or upstream")
+                hops = max(1, min(int(arguments.get("max_hops", 3)), 4))
+                result = self.index.shared_counterparties(arguments["gids"], direction, hops,
+                                                          self._limit(arguments.get("limit"), 10))
+            elif name == "money_paths":
+                hops = max(1, min(int(arguments.get("max_hops", 4)), 6))
+                result = self.index.money_paths(arguments["src"], arguments["dst"], hops)
+            elif name == "top_nodes":
+                result = self.index.top_nodes(arguments.get("role"), arguments.get("cluster_id"),
+                                              bool(arguments.get("flagged_only", False)),
+                                              self._limit(arguments.get("limit"), 10))
+            elif name == "cluster_summary":
+                result = self.index.cluster_summary(int(arguments["cluster_id"]))
+            elif name == "node_cycles":
+                result = self.index.node_cycles(arguments["gid"],
+                                                self._limit(arguments.get("limit"), 5))
+            else:
+                raise ValueError(f"unknown tool: {name}")
+            return dumps(result)
+        except (KeyError, TypeError, ValueError) as error:
+            return dumps({"error": str(error)})
+
     def ask(self, question: str) -> str:
-        messages = [*self.history, {"role": "user", "content": question}]
-        runner = self.client.beta.messages.tool_runner(
-            model=self.model,
-            max_tokens=16000,
-            system=self.system,
-            thinking={"type": "adaptive"},
-            # On a safety decline the API retries on Anthropic's recommended fallback model.
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-            tools=self.tools,
-            messages=messages,
-            max_iterations=12,
-        )
-        final = None
-        for message in runner:
-            messages.append(message.to_param())
-            tool_results = runner.generate_tool_call_response()
-            if tool_results is not None:
-                messages.append(tool_results)
-            final = message
-        if final is None or final.stop_reason == "refusal":
-            return "Запрос отклонён моделью. Переформулируйте вопрос или используйте --offline."
-        self.history = messages
-        return "\n".join(block.text for block in final.content if block.type == "text").strip()
+        messages = [{"role": "system", "content": self.system}, *self.history,
+                    {"role": "user", "content": question}]
+        for _ in range(12):
+            completion = self.client.chat.completions.create(
+                model=self.model, messages=messages, tools=self.tools, tool_choice="auto")
+            if not completion.choices:
+                raise RuntimeError("LLM endpoint returned no choices")
+            message = completion.choices[0].message
+            calls = message.tool_calls or []
+            assistant_message = {"role": "assistant", "content": message.content or ""}
+            if calls:
+                assistant_message["tool_calls"] = [
+                    {"id": call.id, "type": "function",
+                     "function": {"name": call.function.name,
+                                  "arguments": call.function.arguments}}
+                    for call in calls
+                ]
+            messages.append(assistant_message)
+            if not calls:
+                self.history = messages[1:]
+                return message.content.strip() if message.content else "Модель вернула пустой ответ."
+            for call in calls:
+                try:
+                    arguments = json.loads(call.function.arguments)
+                    if not isinstance(arguments, dict):
+                        raise ValueError("tool arguments must be a JSON object")
+                    content = self._call_tool(call.function.name, arguments)
+                except (json.JSONDecodeError, ValueError) as error:
+                    content = dumps({"error": f"invalid tool arguments: {error}"})
+                messages.append({"role": "tool", "tool_call_id": call.id, "content": content})
+        raise RuntimeError("LLM exceeded the 12-step tool-call limit")
 
 
 def offline_answer(index: GraphIndex, question: str) -> str:
@@ -208,35 +206,34 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("question", nargs="*", help="вопрос; без него запускается диалог")
     parser.add_argument("--data", type=Path, default=ROOT / "data")
-    parser.add_argument("--model", default=MODEL)
-    parser.add_argument("--offline", action="store_true", help="без обращения к Claude API")
+    parser.add_argument("--base-url", default=os.environ.get("OPENAI_BASE_URL"),
+                        help="URL локального/внутреннего OpenAI-compatible API (или OPENAI_BASE_URL)")
+    parser.add_argument("--model", default=os.environ.get("OPENAI_MODEL"),
+                        help="имя модели на endpoint (или OPENAI_MODEL)")
+    parser.add_argument("--offline", action="store_true", help="без обращения к LLM API")
     args = parser.parse_args()
     index = GraphIndex(args.data)
 
     assistant = None
     if not args.offline:
         try:
-            import anthropic
+            import openai
         except ImportError:
-            print("Пакет anthropic не установлен; работаю офлайн.", file=sys.stderr)
+            print("Пакет openai не установлен; работаю офлайн.", file=sys.stderr)
         else:
             try:
-                assistant = ClaudeAssistant(index, args.model)
-            except (MissingCredentials, anthropic.AnthropicError) as error:
-                print(f"Claude API недоступен ({error}); работаю офлайн.", file=sys.stderr)
+                assistant = OpenAICompatibleAssistant(index, args.model, args.base_url)
+            except (MissingConfiguration, openai.OpenAIError, ValueError) as error:
+                print(f"LLM API не настроен ({error}); работаю офлайн.", file=sys.stderr)
 
     def answer(question: str) -> str:
         nonlocal assistant
         if assistant is not None:
-            import anthropic
             try:
                 return assistant.ask(question)
-            except (anthropic.AuthenticationError, anthropic.PermissionDeniedError,
-                    anthropic.APIConnectionError) as error:
-                print(f"Claude API недоступен ({type(error).__name__}); работаю офлайн.", file=sys.stderr)
+            except (openai.OpenAIError, RuntimeError) as error:
+                print(f"LLM API недоступен ({type(error).__name__}); работаю офлайн.", file=sys.stderr)
                 assistant = None
-            except anthropic.APIStatusError as error:
-                return f"Ошибка Claude API {error.status_code}: {error.message}"
         return offline_answer(index, question)
 
     if args.question:
