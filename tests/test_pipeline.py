@@ -187,6 +187,7 @@ class PipelineTest(unittest.TestCase):
         self.assertNotIn("/* GRAPH_DATA */ null", html)
         self.assertIn(str(self.top.iloc[0].gid), html)
         self.assertIn('"timeline":[', html)
+        self.assertIn('"cycles":[', html)
         self.assertIn('"clusters":[', html)
         self.assertIn('"clusterFlows":[', html)
         self.assertIn('"gaps":[', html)

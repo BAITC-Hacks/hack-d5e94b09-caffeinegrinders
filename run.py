@@ -613,6 +613,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                          for r in df.itertuples(index=False)],
                "edges": [{"src": str(r.src), "dst": str(r.dst), "amount": float(r.sum_kzt), "count": int(r.n_tx)}
                          for r in edges.itertuples(index=False)],
+               "cycles": cycles.to_dict(orient="records"),
                "routes": routes.to_dict(orient="records"),
                "clusterFlows": flows.to_dict(orient="records"),
                "clusters": cluster_payload,

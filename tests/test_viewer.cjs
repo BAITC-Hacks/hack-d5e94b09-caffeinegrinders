@@ -45,9 +45,10 @@ const edges = [{ src: '1', dst: '2', amount: 100, count: 1 },
   { src: '2', dst: '3', amount: 100, count: 1 }];
 const routes = [{ route_id: 1, kind: 'repeated', hops: 2, path: '1 → 2 → 3',
   relay_days: 2, forwarded_kzt: 100, first_date: '2026-07-01', last_date: '2026-07-02', n_seed: 1 }];
+const cycles = [{ cycle_id: 1, length: 2, path: '2 → 3 → 2', bottleneck_kzt: 100, n_seed: 0 }];
 const html = fs.readFileSync(path.join(__dirname, '..', 'viewer.html'), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1]
-  .replace('/* GRAPH_DATA */ null', JSON.stringify({ nodes, edges, routes }));
+  .replace('/* GRAPH_DATA */ null', JSON.stringify({ nodes, edges, cycles, routes }));
 vm.runInContext(script, sandbox);
 vm.runInContext("select('1'); setMode('two');", sandbox);
 elements.get('cluster').onchange({ target: { value: '2' } });
@@ -80,6 +81,8 @@ assert.match(report, /Evidence: test/);
 assert.match(report, /Заметка аналитика: watch/);
 assert.match(vm.runInContext("dataRequestsForNode(byId.get('3')).join(';')", sandbox), /продлить обход/);
 assert.equal(vm.runInContext("routesForNode('2')[0].path", sandbox), '1 → 2 → 3');
+vm.runInContext("select('2'); setMode('two');", sandbox);
+assert.equal(vm.runInContext("highlightEdges.has('1→2') && highlightEdges.has('2→3') && highlightEdges.has('3→2')", sandbox), true);
 elements.get('clearCase').onclick();
 assert.equal(vm.runInContext('caseState.gids.length', sandbox), 0);
 console.log('Viewer cluster regression passed');
