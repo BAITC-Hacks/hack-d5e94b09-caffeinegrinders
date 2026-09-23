@@ -65,6 +65,9 @@ def graph_features(nodes: pd.DataFrame, edges: pd.DataFrame, tx: pd.DataFrame):
         df[key] = df.gid.map(values).fillna(0)
         if key.endswith("deg") or key.endswith("tx"):
             df[key] = df[key].astype(int)
+        else:
+            # Tiyn precision; float summation order must not leak into the CSV.
+            df[key] = df[key].round(2)
     df["ratio"] = np.where(df.in_kzt > 0, df.out_kzt / df.in_kzt.replace(0, np.nan), np.nan)
     df["boundary"] = (df.depth == 4) & (df.out_deg == 0)
 
