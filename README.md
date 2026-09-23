@@ -22,7 +22,7 @@ python -m venv .venv
 
 Если окружение `.venv` уже подготовлено, достаточно последней команды.
 
-Результат находится в `out/`: три обязательные выгрузки `nodes_roles.csv`, `clusters.csv`, `top_nodes.csv`, дополнительные `cycles.csv`, `cycle_nodes.csv`, `routes.csv`, `route_nodes.csv`, `timeline.csv`, `daily_summary.csv`, `depth_summary.csv`, `risk_flags.csv`, `attention_examples.csv`, `cluster_attention.csv`, `cluster_flows.csv`, `seed_coverage.csv`, `seed_components.csv`, `seed_role_reach.csv`, `components.csv`, `component_roles.csv`, `component_attention.csv`, `isolated_nodes.csv`, `amount_bands.csv`, `role_summary.csv`, `role_depths.csv`, `role_flows.csv`, `top_edges.csv`, `top_counterparties.csv`, `boundary_review.csv`, `cluster_roles.csv`, `cluster_depths.csv`, `resilience.csv`, `data_gaps.csv` и автономная страница `network.html`. Откройте HTML в браузере как обычный файл. Интернет и сервер для просмотра не нужны. На предоставленных 2 248 узлах прямой расчёт `run.py` занимает менее секунды на тестовой машине; установка пакетов в это время не входит. Целевой предел пересчёта — 5 минут.
+Результат находится в `out/`: три обязательные выгрузки `nodes_roles.csv`, `clusters.csv`, `top_nodes.csv`, дополнительные `cycles.csv`, `cycle_nodes.csv`, `routes.csv`, `route_nodes.csv`, `timeline.csv`, `daily_summary.csv`, `depth_summary.csv`, `risk_flags.csv`, `attention_examples.csv`, `cluster_attention.csv`, `cluster_flows.csv`, `seed_coverage.csv`, `seed_components.csv`, `seed_role_reach.csv`, `components.csv`, `component_roles.csv`, `component_attention.csv`, `isolated_nodes.csv`, `amount_bands.csv`, `role_summary.csv`, `role_depths.csv`, `role_flows.csv`, `depth_flows.csv`, `top_edges.csv`, `top_counterparties.csv`, `boundary_review.csv`, `cluster_roles.csv`, `cluster_depths.csv`, `resilience.csv`, `data_gaps.csv` и автономная страница `network.html`. Откройте HTML в браузере как обычный файл. Интернет и сервер для просмотра не нужны. На предоставленных 2 248 узлах прямой расчёт `run.py` занимает менее секунды на тестовой машине; установка пакетов в это время не входит. Целевой предел пересчёта — 5 минут.
 
 ## Сценарий аналитика
 
@@ -105,6 +105,7 @@ priority_score = base × role_factor × boundary_factor × seed_factor
 | `role_summary.csv` | Сводка по структурным ролям: число узлов, доля сети, seed, граничные узлы, средние скоры, оборот и топовые `gid`. |
 | `role_depths.csv` | Матрица «роль × колено обхода»: число узлов, доля внутри роли, seed, граничные узлы и топовые `gid`. |
 | `role_flows.csv` | Агрегированные видимые потоки между структурными ролями `src_role → dst_role`: сумма, число рёбер и транзакций. |
+| `depth_flows.csv` | Агрегированные видимые потоки между коленями обхода `src_depth → dst_depth` с направлением outward, same_depth или backward. |
 | `top_edges.csv` | До 200 крупнейших видимых пар `src → dst` с суммой, числом операций, ролями и кластерами обоих концов. |
 | `top_counterparties.csv` | До трёх крупнейших входящих и исходящих прямых контрагентов для каждого `gid`, с ролью и кластером контрагента. |
 | `boundary_review.csv` | Очередь граничных узлов 4-го колена для продления обхода: `gid`, входящие связи, сумма, оценка скрытого выхода и следующий запрос. |

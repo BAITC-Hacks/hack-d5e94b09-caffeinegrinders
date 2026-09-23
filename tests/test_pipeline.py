@@ -294,6 +294,18 @@ class PipelineTest(unittest.TestCase):
         self.assertTrue(set(role_flows.src_role).issubset(set(self.nodes.role)))
         self.assertTrue(set(role_flows.dst_role).issubset(set(self.nodes.role)))
         self.assertTrue(role_flows.sum_kzt.is_monotonic_decreasing)
+        depth_flows = pd.read_csv(self.out / "depth_flows.csv")
+        self.assertEqual(round(depth_flows.sum_kzt.sum(), 2), round(source_edges.sum_kzt.sum(), 2))
+        self.assertEqual(int(depth_flows.n_edges.sum()), len(source_edges))
+        self.assertEqual(int(depth_flows.n_tx.sum()), int(source_edges.n_tx.sum()))
+        self.assertTrue(set(depth_flows.src_depth).issubset(set(self.nodes.depth)))
+        self.assertTrue(set(depth_flows.dst_depth).issubset(set(self.nodes.depth)))
+        self.assertTrue(set(depth_flows.direction).issubset({"outward", "same_depth", "backward"}))
+        for row in depth_flows.itertuples(index=False):
+            expected_direction = "outward" if row.dst_depth > row.src_depth else (
+                "backward" if row.dst_depth < row.src_depth else "same_depth"
+            )
+            self.assertEqual(row.direction, expected_direction)
         directed_edges = set(zip(source_edges.src, source_edges.dst))
         for row in counterparties.itertuples(index=False):
             self.assertLessEqual(row.rank, 3)
@@ -353,6 +365,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"clusterDepths":[', html)
         self.assertIn('"roleDepths":[', html)
         self.assertIn('"roleFlows":[', html)
+        self.assertIn('"depthFlows":[', html)
         self.assertIn('"topCounterparties":[', html)
         self.assertIn("<canvas", html)
 
@@ -381,7 +394,8 @@ class PipelineTest(unittest.TestCase):
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
                          "cluster_roles.csv", "seed_role_reach.csv", "attention_examples.csv",
                          "cluster_attention.csv", "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
-                         "cluster_depths.csv", "role_depths.csv", "role_flows.csv", "top_counterparties.csv",
+                         "cluster_depths.csv", "role_depths.csv", "role_flows.csv", "depth_flows.csv",
+                         "top_counterparties.csv",
                          "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
