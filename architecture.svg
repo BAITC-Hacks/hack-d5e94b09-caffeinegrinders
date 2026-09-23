@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 220" role="img" aria-label="Данные parquet переходят в граф и метрики, затем в роли и кластеры, CSV и интерфейс">
+<style>text{font:18px system-ui,sans-serif;fill:#e8eef9}.small{font-size:13px;fill:#afc1d8}.box{fill:#14243e;stroke:#4c7198;stroke-width:2;rx:15}.arrow{stroke:#69c8e7;stroke-width:3;fill:none;marker-end:url(#head)}</style>
+<defs><marker id="head" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10" fill="#69c8e7"/></marker></defs>
+<rect width="1100" height="220" fill="#0b1020"/>
+<rect class="box" x="20" y="55" width="215" height="115"/><text x="38" y="94">3 файла parquet</text><text class="small" x="38" y="123">nodes · edges · transactions</text><text class="small" x="38" y="145">валидация пар и сумм</text>
+<path class="arrow" d="M240 112 H286"/>
+<rect class="box" x="292" y="55" width="225" height="115"/><text x="310" y="94">Направленный граф</text><text class="small" x="310" y="123">потоки · seed · время</text><text class="small" x="310" y="145">мосты · связи</text>
+<path class="arrow" d="M522 112 H568"/>
+<rect class="box" x="574" y="55" width="218" height="115"/><text x="592" y="94">Роли и кластеры</text><text class="small" x="592" y="123">пороговые правила</text><text class="small" x="592" y="145">Louvain · приоритет</text>
+<path class="arrow" d="M797 112 H843"/>
+<rect class="box" x="849" y="55" width="230" height="115"/><text x="867" y="94">CSV и HTML</text><text class="small" x="867" y="123">топ-лист · доказательства</text><text class="small" x="867" y="145">поиск gid · схема сети</text>
+</svg>
