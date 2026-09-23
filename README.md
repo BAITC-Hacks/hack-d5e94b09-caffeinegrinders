@@ -22,7 +22,7 @@ python -m venv .venv
 
 Если окружение `.venv` уже подготовлено, достаточно последней команды.
 
-Результат находится в `out/`: три обязательные выгрузки `nodes_roles.csv`, `clusters.csv`, `top_nodes.csv`, дополнительные `cycles.csv`, `cycle_nodes.csv`, `routes.csv`, `route_nodes.csv`, `timeline.csv`, `daily_summary.csv`, `depth_summary.csv`, `risk_flags.csv`, `attention_examples.csv`, `cluster_attention.csv`, `cluster_flows.csv`, `seed_coverage.csv`, `seed_components.csv`, `seed_role_reach.csv`, `components.csv`, `component_roles.csv`, `component_attention.csv`, `isolated_nodes.csv`, `amount_bands.csv`, `role_summary.csv`, `role_depths.csv`, `role_flows.csv`, `depth_flows.csv`, `top_edges.csv`, `top_counterparties.csv`, `boundary_review.csv`, `cluster_roles.csv`, `cluster_depths.csv`, `resilience.csv`, `data_gaps.csv` и автономная страница `network.html`. Откройте HTML в браузере как обычный файл. Интернет и сервер для просмотра не нужны. На предоставленных 2 248 узлах прямой расчёт `run.py` занимает менее секунды на тестовой машине; установка пакетов в это время не входит. Целевой предел пересчёта — 5 минут.
+Результат находится в `out/`: три обязательные выгрузки `nodes_roles.csv`, `clusters.csv`, `top_nodes.csv`, дополнительные `cycles.csv`, `cycle_nodes.csv`, `routes.csv`, `route_nodes.csv`, `timeline.csv`, `daily_summary.csv`, `depth_summary.csv`, `risk_flags.csv`, `attention_examples.csv`, `cluster_attention.csv`, `cluster_flows.csv`, `seed_coverage.csv`, `seed_components.csv`, `seed_role_reach.csv`, `seed_overlap.csv`, `components.csv`, `component_roles.csv`, `component_attention.csv`, `isolated_nodes.csv`, `amount_bands.csv`, `role_summary.csv`, `role_depths.csv`, `role_flows.csv`, `depth_flows.csv`, `top_edges.csv`, `top_counterparties.csv`, `boundary_review.csv`, `cluster_roles.csv`, `cluster_depths.csv`, `resilience.csv`, `data_gaps.csv` и автономная страница `network.html`. Откройте HTML в браузере как обычный файл. Интернет и сервер для просмотра не нужны. На предоставленных 2 248 узлах прямой расчёт `run.py` занимает менее секунды на тестовой машине; установка пакетов в это время не входит. Целевой предел пересчёта — 5 минут.
 
 ## Сценарий аналитика
 
@@ -97,6 +97,7 @@ priority_score = base × role_factor × boundary_factor × seed_factor
 | `seed_coverage.csv` | Покрытие каждого seed: достижимые узлы за 4 перевода, прямые получатели, прямой исходящий поток и кластер. |
 | `seed_components.csv` | Компонента каждого seed: размер фрагмента, число seed в нём, внутренний оборот, рёбра, кластер и охват за 4 перевода. |
 | `seed_role_reach.csv` | Для каждого seed: сколько достижимых за 4 перевода узлов попадает в каждую структурную роль, плюс граничные и флаговые узлы. |
+| `seed_overlap.csv` | Пары seed, которые достигают одних и тех же видимых узлов за 4 перевода: размер пересечения, доли охвата и топовые общие `gid`. |
 | `components.csv` | Слабосвязные фрагменты сети: размер, seed, внутренний оборот, число рёбер, топовые `gid` и признак главной компоненты. |
 | `component_roles.csv` | Матрица «компонента × роль»: число узлов, доля внутри компоненты, seed, граничные узлы и топовые `gid`. |
 | `component_attention.csv` | Флаги внимания по слабосвязным компонентам: число уникальных `gid`, доля внутри компоненты и топовые примеры. |
