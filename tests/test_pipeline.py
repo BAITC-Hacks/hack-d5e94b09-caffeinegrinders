@@ -143,6 +143,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn(str(self.top.iloc[0].gid), html)
         self.assertIn('"timeline":[', html)
         self.assertIn('"clusters":[', html)
+        self.assertIn('"gaps":[', html)
         self.assertIn("<canvas", html)
 
     def test_outputs_are_identical_after_input_rows_are_shuffled(self):
