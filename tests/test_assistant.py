@@ -1,12 +1,14 @@
-"""Assistant tools and the Claude tool loop, checked offline with a mocked API."""
+"""Assistant tools and the OpenAI-compatible tool loop, checked with a mock client."""
 
+import copy
 import json
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 
-from assistant import ClaudeAssistant, offline_answer
+from assistant import MissingConfiguration, OpenAICompatibleAssistant, offline_answer
 from graph_tools import GraphIndex, UnknownGid
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,49 +57,43 @@ class GraphToolsTest(unittest.TestCase):
         self.assertIn("Общие получатели", answer)
 
 
-class ClaudeLoopTest(unittest.TestCase):
+class OpenAICompatibleLoopTest(unittest.TestCase):
     """Replays two API turns: a tool call, then the final answer."""
 
     def test_tool_loop_runs_graph_tools(self):
-        try:
-            import anthropic
-            import httpx2
-        except ImportError:
-            self.skipTest("anthropic is not installed")
         index = GraphIndex(ROOT / "data")
         gid = index.top_nodes(limit=1)["shown"][0]["gid"]
         requests = []
 
-        def reply(content, stop_reason):
-            return {"id": f"msg_{len(requests)}", "type": "message", "role": "assistant",
-                    "model": "claude-opus-5", "content": content, "stop_reason": stop_reason,
-                    "stop_sequence": None, "usage": {"input_tokens": 1, "output_tokens": 1}}
+        class Completions:
+            def create(self, **request):
+                requests.append(copy.deepcopy(request))
+                if len(requests) == 1:
+                    tool_call = SimpleNamespace(
+                        id="call_1", type="function",
+                        function=SimpleNamespace(name="node_profile", arguments=json.dumps({"gid": gid})))
+                    message = SimpleNamespace(content=None, tool_calls=[tool_call])
+                else:
+                    message = SimpleNamespace(content=f"Узел {gid}: признаки координации.", tool_calls=None)
+                return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
-        def handler(request):
-            body = json.loads(request.content)
-            requests.append((request, body))
-            if len(requests) == 1:
-                return httpx2.Response(200, json=reply(
-                    [{"type": "tool_use", "id": "toolu_1", "name": "node_profile", "input": {"gid": gid}}],
-                    "tool_use"))
-            return httpx2.Response(200, json=reply([{"type": "text", "text": f"Узел {gid}: признаки координации."}],
-                                                   "end_turn"))
-
-        client = anthropic.Anthropic(api_key="test", http_client=anthropic.DefaultHttpxClient(
-            transport=httpx2.MockTransport(handler)))
-        assistant = ClaudeAssistant(index, "claude-opus-5", client=client)
+        client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+        assistant = OpenAICompatibleAssistant(index, "local-model", client=client)
         self.assertEqual(assistant.ask(f"Что за узел {gid}?"), f"Узел {gid}: признаки координации.")
 
-        first, second = requests[0][1], requests[1][1]
-        self.assertEqual(first["fallbacks"], "default")
-        self.assertIn("server-side-fallback-2026-07-01", requests[0][0].headers["anthropic-beta"])
-        self.assertIn("node_profile", {tool["name"] for tool in first["tools"]})
-        tool_result = second["messages"][-1]["content"][0]
-        self.assertEqual(tool_result["type"], "tool_result")
-        self.assertEqual(json.loads(tool_result["content"][0]["text"] if isinstance(tool_result["content"], list)
-                                    else tool_result["content"])["gid"], gid)
+        first, second = requests
+        self.assertEqual(first["model"], "local-model")
+        self.assertIn("node_profile", {tool["function"]["name"] for tool in first["tools"]})
+        tool_result = second["messages"][-1]
+        self.assertEqual(tool_result["role"], "tool")
+        self.assertEqual(json.loads(tool_result["content"])["gid"], gid)
         # The follow-up question carries the whole previous exchange.
         self.assertEqual(len(assistant.history), 4)
+
+    def test_endpoint_is_required_without_injected_client(self):
+        index = GraphIndex(ROOT / "data")
+        with self.assertRaisesRegex(MissingConfiguration, "OPENAI_BASE_URL"):
+            OpenAICompatibleAssistant(index, "local-model")
 
 
 if __name__ == "__main__":
