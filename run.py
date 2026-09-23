@@ -615,6 +615,39 @@ def seed_coverage(graph: nx.DiGraph, df: pd.DataFrame):
                                        "max_depth_reached"])
 
 
+def seed_overlap(graph: nx.DiGraph, df: pd.DataFrame):
+    """Pairs of seeds that reach the same visible nodes within four transfers."""
+    columns = ["seed_a", "seed_b", "shared_reachable", "share_a", "share_b",
+               "same_cluster", "top_shared_gids"]
+    seeds = sorted(int(seed) for seed in df.loc[df.is_seed, "gid"])
+    if len(seeds) < 2:
+        return pd.DataFrame(columns=columns)
+    lookup = df.set_index("gid")
+    reachable = {}
+    for seed in seeds:
+        seen = nx.single_source_shortest_path_length(graph, seed, cutoff=4)
+        reachable[seed] = {int(node) for node in seen if int(node) != seed}
+    rows = []
+    for idx, seed_a in enumerate(seeds):
+        for seed_b in seeds[idx + 1:]:
+            shared = reachable[seed_a] & reachable[seed_b]
+            if not shared:
+                continue
+            leaders = lookup.loc[sorted(shared)].sort_values(
+                ["priority_score", "gid"], ascending=[False, True]
+            ).head(10)
+            rows.append({"seed_a": seed_a,
+                         "seed_b": seed_b,
+                         "shared_reachable": int(len(shared)),
+                         "share_a": round(len(shared) / len(reachable[seed_a]), 4) if reachable[seed_a] else 0.0,
+                         "share_b": round(len(shared) / len(reachable[seed_b]), 4) if reachable[seed_b] else 0.0,
+                         "same_cluster": bool(lookup.loc[seed_a, "cluster_id"] == lookup.loc[seed_b, "cluster_id"]),
+                         "top_shared_gids": ";".join(str(int(gid)) for gid in leaders.index)})
+    return pd.DataFrame(rows, columns=columns).sort_values(
+        ["shared_reachable", "seed_a", "seed_b"], ascending=[False, True, True]
+    ).reset_index(drop=True)
+
+
 def component_summary(graph: nx.DiGraph, df: pd.DataFrame, edges: pd.DataFrame):
     """Weakly connected network fragments with seeds, turnover and leaders."""
     rows = []
@@ -1092,8 +1125,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   amount_bands: pd.DataFrame, roles: pd.DataFrame,
                   top_edges: pd.DataFrame, daily: pd.DataFrame,
                   boundary_queue: pd.DataFrame, cluster_roles: pd.DataFrame,
-                  seed_roles: pd.DataFrame, attention_rows: pd.DataFrame,
-                  cluster_attention: pd.DataFrame,
+                  seed_roles: pd.DataFrame, seed_overlap_rows: pd.DataFrame,
+                  attention_rows: pd.DataFrame, cluster_attention: pd.DataFrame,
                   route_nodes: pd.DataFrame, cycle_nodes: pd.DataFrame,
                   depths: pd.DataFrame, cluster_depths: pd.DataFrame,
                   role_depths: pd.DataFrame, role_flow_rows: pd.DataFrame,
@@ -1178,6 +1211,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     boundary_queue.to_csv(out / "boundary_review.csv", index=False)
     cluster_roles.to_csv(out / "cluster_roles.csv", index=False)
     seed_roles.to_csv(out / "seed_role_reach.csv", index=False)
+    seed_overlap_rows.to_csv(out / "seed_overlap.csv", index=False)
     attention_rows.to_csv(out / "attention_examples.csv", index=False)
     cluster_attention.to_csv(out / "cluster_attention.csv", index=False)
     route_nodes.to_csv(out / "route_nodes.csv", index=False)
@@ -1247,6 +1281,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "boundaryReview": boundary_queue.to_dict(orient="records"),
                "clusterRoles": cluster_roles.to_dict(orient="records"),
                "seedRoleReach": seed_roles.to_dict(orient="records"),
+               "seedOverlap": seed_overlap_rows.to_dict(orient="records"),
                "attentionExamples": attention_rows.to_dict(orient="records"),
                "clusterAttention": cluster_attention.to_dict(orient="records"),
                "routeNodes": route_nodes.to_dict(orient="records"),
@@ -1297,6 +1332,7 @@ def main():
     boundary_queue = boundary_review(df)
     cluster_roles = cluster_role_matrix(df)
     seed_roles = seed_role_reach(graph, df)
+    seed_overlap_rows = seed_overlap(graph, df)
     attention_rows = attention_examples(df)
     component_attention = component_attention_summary(graph, df, attention_rows)
     cluster_attention = cluster_attention_summary(df, attention_rows)
@@ -1311,7 +1347,8 @@ def main():
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                   seed_report, seed_components, components, component_roles,
                   component_attention, isolated_nodes, amount_bands, roles, top_edges,
-                  daily, boundary_queue, cluster_roles, seed_roles, attention_rows, cluster_attention,
+                  daily, boundary_queue, cluster_roles, seed_roles, seed_overlap_rows,
+                  attention_rows, cluster_attention,
                   route_nodes, cycle_nodes, depths, cluster_depths, role_depths,
                   role_flow_rows, depth_flow_rows, counterparties,
                   timeline, args.out)

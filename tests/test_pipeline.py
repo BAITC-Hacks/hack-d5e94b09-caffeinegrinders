@@ -267,6 +267,36 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(row.reachable_nodes, coverage.loc[row.seed_gid, "reachable_nodes"])
         self.assertTrue((seed_roles[role_cols].sum(axis=1) == seed_roles.reachable_nodes).all())
         self.assertTrue(seed_roles.max_depth_reached.between(0, 4).all())
+        seed_overlap = pd.read_csv(self.out / "seed_overlap.csv")
+        neighbors = source_edges.groupby("src").dst.apply(list).to_dict()
+
+        def reachable_from(seed):
+            seen = {int(seed): 0}
+            frontier = [int(seed)]
+            for depth in range(1, 5):
+                next_frontier = []
+                for node in frontier:
+                    for dst in neighbors.get(node, []):
+                        dst = int(dst)
+                        if dst not in seen:
+                            seen[dst] = depth
+                            next_frontier.append(dst)
+                frontier = next_frontier
+            seen.pop(int(seed), None)
+            return set(seen)
+
+        seed_reach = {int(seed): reachable_from(seed) for seed in self.nodes.loc[self.nodes.is_seed, "gid"]}
+        self.assertLessEqual(len(seed_overlap), len(seed_reach) * max(len(seed_reach) - 1, 0) // 2)
+        self.assertTrue(seed_overlap.shared_reachable.is_monotonic_decreasing)
+        for row in seed_overlap.itertuples(index=False):
+            shared = seed_reach[int(row.seed_a)] & seed_reach[int(row.seed_b)]
+            self.assertLess(int(row.seed_a), int(row.seed_b))
+            self.assertEqual(row.shared_reachable, len(shared))
+            self.assertGreater(row.shared_reachable, 0)
+            self.assertTrue(0 <= row.share_a <= 1)
+            self.assertTrue(0 <= row.share_b <= 1)
+            examples = [int(gid) for gid in str(row.top_shared_gids).split(";") if gid]
+            self.assertTrue(set(examples).issubset(shared))
         depths = pd.read_csv(self.out / "depth_summary.csv").set_index("depth")
         self.assertEqual(depths.n_nodes.sum(), len(self.nodes))
         self.assertTrue(np.isclose(depths.share_nodes.sum(), 1.0, atol=.001))
@@ -357,6 +387,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"boundaryReview":[', html)
         self.assertIn('"clusterRoles":[', html)
         self.assertIn('"seedRoleReach":[', html)
+        self.assertIn('"seedOverlap":[', html)
         self.assertIn('"attentionExamples":[', html)
         self.assertIn('"clusterAttention":[', html)
         self.assertIn('"routeNodes":[', html)
@@ -392,7 +423,7 @@ class PipelineTest(unittest.TestCase):
                          "component_attention.csv", "isolated_nodes.csv",
                          "amount_bands.csv", "role_summary.csv",
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
-                         "cluster_roles.csv", "seed_role_reach.csv", "attention_examples.csv",
+                         "cluster_roles.csv", "seed_role_reach.csv", "seed_overlap.csv", "attention_examples.csv",
                          "cluster_attention.csv", "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
                          "cluster_depths.csv", "role_depths.csv", "role_flows.csv", "depth_flows.csv",
                          "top_counterparties.csv",
