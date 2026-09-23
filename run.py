@@ -883,6 +883,31 @@ def cluster_depth_matrix(df: pd.DataFrame):
     ).reset_index(drop=True)
 
 
+def role_depth_matrix(df: pd.DataFrame):
+    """Depth composition for each assigned role."""
+    columns = ["role", "depth", "n_nodes", "share_role", "n_seed",
+               "boundary_nodes", "avg_priority_score", "top_gids"]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    rows = []
+    role_sizes = df.groupby("role").size().to_dict()
+    for role in ROLE_ORDER:
+        role_group = df[df.role == role]
+        if role_group.empty:
+            continue
+        for depth, group in role_group.groupby("depth", sort=True):
+            leaders = group.sort_values(["priority_score", "gid"], ascending=[False, True]).head(5)
+            rows.append({"role": role,
+                         "depth": int(depth),
+                         "n_nodes": int(len(group)),
+                         "share_role": round(len(group) / role_sizes[role], 4),
+                         "n_seed": int(group.is_seed.sum()),
+                         "boundary_nodes": int(group.boundary.sum()),
+                         "avg_priority_score": round(float(group.priority_score.mean()), 6),
+                         "top_gids": ";".join(str(x) for x in leaders.gid)})
+    return pd.DataFrame(rows, columns=columns)
+
+
 def top_counterparties(edges: pd.DataFrame, df: pd.DataFrame, per_node: int = 3):
     """Top direct visible counterparties for every node and direction."""
     columns = ["gid", "direction", "rank", "counterparty_gid", "sum_kzt", "n_tx",
@@ -927,7 +952,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   seed_roles: pd.DataFrame, attention_rows: pd.DataFrame,
                   route_nodes: pd.DataFrame, cycle_nodes: pd.DataFrame,
                   depths: pd.DataFrame, cluster_depths: pd.DataFrame,
-                  counterparties: pd.DataFrame, timeline: pd.DataFrame, out: Path):
+                  role_depths: pd.DataFrame, counterparties: pd.DataFrame,
+                  timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
@@ -1009,6 +1035,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     cycle_nodes.to_csv(out / "cycle_nodes.csv", index=False)
     depths.to_csv(out / "depth_summary.csv", index=False)
     cluster_depths.to_csv(out / "cluster_depths.csv", index=False)
+    role_depths.to_csv(out / "role_depths.csv", index=False)
     counterparties.to_csv(out / "top_counterparties.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
 
@@ -1071,6 +1098,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "cycleNodes": cycle_nodes.to_dict(orient="records"),
                "depthSummary": depths.to_dict(orient="records"),
                "clusterDepths": cluster_depths.to_dict(orient="records"),
+               "roleDepths": role_depths.to_dict(orient="records"),
                "topCounterparties": counterparties.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
@@ -1115,11 +1143,12 @@ def main():
     cycle_nodes = cycle_node_membership(cycles, df)
     depths = depth_summary(df)
     cluster_depths = cluster_depth_matrix(df)
+    role_depths = role_depth_matrix(df)
     counterparties = top_counterparties(edges, df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                   seed_report, seed_components, components, amount_bands, roles, top_edges,
                   daily, boundary_queue, cluster_roles, seed_roles, attention_rows,
-                  route_nodes, cycle_nodes, depths, cluster_depths, counterparties,
+                  route_nodes, cycle_nodes, depths, cluster_depths, role_depths, counterparties,
                   timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()

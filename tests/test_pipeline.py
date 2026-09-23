@@ -260,6 +260,12 @@ class PipelineTest(unittest.TestCase):
         self.assertTrue(cluster_depths.share_cluster.between(0, 1).all())
         boundary_depths = cluster_depths.groupby("depth").boundary_nodes.sum()
         self.assertEqual(boundary_depths.get(4, 0), int(self.nodes.boundary.sum()))
+        role_depths = pd.read_csv(self.out / "role_depths.csv")
+        by_role_depth = role_depths.groupby("role").n_nodes.sum().sort_index()
+        expected_by_role_depth = self.nodes.groupby("role").size().sort_index()
+        self.assertEqual(by_role_depth.to_dict(), expected_by_role_depth.to_dict())
+        self.assertTrue(role_depths.share_role.between(0, 1).all())
+        self.assertEqual(role_depths.boundary_nodes.sum(), int(self.nodes.boundary.sum()))
         counterparties = pd.read_csv(self.out / "top_counterparties.csv")
         source_edges = pd.read_parquet(ROOT / "data" / "edges.parquet")
         directed_edges = set(zip(source_edges.src, source_edges.dst))
@@ -315,6 +321,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"cycleNodes":[', html)
         self.assertIn('"depthSummary":[', html)
         self.assertIn('"clusterDepths":[', html)
+        self.assertIn('"roleDepths":[', html)
         self.assertIn('"topCounterparties":[', html)
         self.assertIn("<canvas", html)
 
@@ -341,7 +348,8 @@ class PipelineTest(unittest.TestCase):
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
                          "cluster_roles.csv", "seed_role_reach.csv", "attention_examples.csv",
                          "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
-                         "cluster_depths.csv", "top_counterparties.csv", "timeline.csv", "network.html"):
+                         "cluster_depths.csv", "role_depths.csv", "top_counterparties.csv",
+                         "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),
