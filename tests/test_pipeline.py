@@ -238,6 +238,11 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(row.reachable_nodes, coverage.loc[row.seed_gid, "reachable_nodes"])
         self.assertTrue((seed_roles[role_cols].sum(axis=1) == seed_roles.reachable_nodes).all())
         self.assertTrue(seed_roles.max_depth_reached.between(0, 4).all())
+        depths = pd.read_csv(self.out / "depth_summary.csv").set_index("depth")
+        self.assertEqual(depths.n_nodes.sum(), len(self.nodes))
+        self.assertTrue(np.isclose(depths.share_nodes.sum(), 1.0, atol=.001))
+        self.assertEqual(depths.loc[4, "boundary_nodes"], int(self.nodes.boundary.sum()))
+        self.assertEqual(depths.loc[0, "n_seed"], int(self.nodes[self.nodes.depth == 0].is_seed.sum()))
 
     def test_timeline_matches_transactions(self):
         timeline = pd.read_csv(self.out / "timeline.csv")
@@ -280,6 +285,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"attentionExamples":[', html)
         self.assertIn('"routeNodes":[', html)
         self.assertIn('"cycleNodes":[', html)
+        self.assertIn('"depthSummary":[', html)
         self.assertIn("<canvas", html)
 
     def test_outputs_are_identical_after_input_rows_are_shuffled(self):
@@ -304,7 +310,8 @@ class PipelineTest(unittest.TestCase):
                          "components.csv", "amount_bands.csv", "role_summary.csv",
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
                          "cluster_roles.csv", "seed_role_reach.csv", "attention_examples.csv",
-                         "route_nodes.csv", "cycle_nodes.csv", "timeline.csv", "network.html"):
+                         "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
+                         "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),

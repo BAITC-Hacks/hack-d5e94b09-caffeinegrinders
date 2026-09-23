@@ -800,6 +800,30 @@ def cycle_node_membership(cycles: pd.DataFrame, df: pd.DataFrame):
     return pd.DataFrame(rows, columns=columns)
 
 
+def depth_summary(df: pd.DataFrame):
+    """Overview by traversal depth, including the documented boundary layer."""
+    columns = ["depth", "n_nodes", "share_nodes", "n_seed", "boundary_nodes",
+               "in_kzt", "out_kzt", "avg_priority_score", "attention_nodes",
+               "top_gids"]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    rows = []
+    total = len(df)
+    for depth, group in df.groupby("depth", sort=True):
+        leaders = group.sort_values(["priority_score", "gid"], ascending=[False, True]).head(5)
+        rows.append({"depth": int(depth),
+                     "n_nodes": int(len(group)),
+                     "share_nodes": round(len(group) / total, 4),
+                     "n_seed": int(group.is_seed.sum()),
+                     "boundary_nodes": int(group.boundary.sum()),
+                     "in_kzt": round(float(group.in_kzt.sum()), 2),
+                     "out_kzt": round(float(group.out_kzt.sum()), 2),
+                     "avg_priority_score": round(float(group.priority_score.mean()), 6),
+                     "attention_nodes": int((group.attention != "нет").sum()),
+                     "top_gids": ";".join(str(x) for x in leaders.gid)})
+    return pd.DataFrame(rows, columns=columns)
+
+
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
                   risk_flags: pd.DataFrame, flows: pd.DataFrame,
@@ -809,7 +833,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   boundary_queue: pd.DataFrame, cluster_roles: pd.DataFrame,
                   seed_roles: pd.DataFrame, attention_rows: pd.DataFrame,
                   route_nodes: pd.DataFrame, cycle_nodes: pd.DataFrame,
-                  timeline: pd.DataFrame, out: Path):
+                  depths: pd.DataFrame, timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
@@ -888,6 +912,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     attention_rows.to_csv(out / "attention_examples.csv", index=False)
     route_nodes.to_csv(out / "route_nodes.csv", index=False)
     cycle_nodes.to_csv(out / "cycle_nodes.csv", index=False)
+    depths.to_csv(out / "depth_summary.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
 
     timeline_by_gid = defaultdict(list)
@@ -945,7 +970,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "seedRoleReach": seed_roles.to_dict(orient="records"),
                "attentionExamples": attention_rows.to_dict(orient="records"),
                "routeNodes": route_nodes.to_dict(orient="records"),
-               "cycleNodes": cycle_nodes.to_dict(orient="records")}
+               "cycleNodes": cycle_nodes.to_dict(orient="records"),
+               "depthSummary": depths.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     (out / "network.html").write_text(page, encoding="utf-8")
@@ -986,10 +1012,11 @@ def main():
     attention_rows = attention_examples(df)
     route_nodes = route_node_membership(routes, df)
     cycle_nodes = cycle_node_membership(cycles, df)
+    depths = depth_summary(df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                   seed_report, components, amount_bands, roles, top_edges,
                   daily, boundary_queue, cluster_roles, seed_roles, attention_rows,
-                  route_nodes, cycle_nodes, timeline, args.out)
+                  route_nodes, cycle_nodes, depths, timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()
     print(f"Готово: {len(df)} узлов, {len(edges)} рёбер, {df.cluster_id.nunique()} кластеров")
