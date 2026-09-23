@@ -484,9 +484,33 @@ def risk_flags_summary(df: pd.DataFrame):
                          for key, mask, meaning in flags])
 
 
+def cluster_flows(df: pd.DataFrame, edges: pd.DataFrame):
+    """Aggregated transfers between clusters for ingress/egress review."""
+    cluster_of = dict(zip(df.gid, df.cluster_id))
+    rows = []
+    for row in edges.itertuples(index=False):
+        src_cluster = int(cluster_of[row.src])
+        dst_cluster = int(cluster_of[row.dst])
+        if src_cluster != dst_cluster:
+            rows.append({"src_cluster": src_cluster, "dst_cluster": dst_cluster,
+                         "sum_kzt": float(row.sum_kzt), "n_edges": 1,
+                         "n_tx": int(row.n_tx)})
+    if not rows:
+        return pd.DataFrame(columns=["src_cluster", "dst_cluster", "sum_kzt", "n_edges", "n_tx"])
+    flows = pd.DataFrame(rows).groupby(["src_cluster", "dst_cluster"], as_index=False).agg(
+        sum_kzt=("sum_kzt", "sum"),
+        n_edges=("n_edges", "sum"),
+        n_tx=("n_tx", "sum"),
+    )
+    flows["sum_kzt"] = flows.sum_kzt.round(2)
+    return flows.sort_values(["sum_kzt", "src_cluster", "dst_cluster"],
+                             ascending=[False, True, True]).reset_index(drop=True)
+
+
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
-                  risk_flags: pd.DataFrame, timeline: pd.DataFrame, out: Path):
+                  risk_flags: pd.DataFrame, flows: pd.DataFrame,
+                  timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
@@ -552,6 +576,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     resilience.to_csv(out / "resilience.csv", index=False)
     gaps.to_csv(out / "data_gaps.csv", index=False)
     risk_flags.to_csv(out / "risk_flags.csv", index=False)
+    flows.to_csv(out / "cluster_flows.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
 
     timeline_by_gid = defaultdict(list)
@@ -593,6 +618,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "edges": [{"src": str(r.src), "dst": str(r.dst), "amount": float(r.sum_kzt), "count": int(r.n_tx)}
                          for r in edges.itertuples(index=False)],
                "routes": routes.to_dict(orient="records"),
+               "clusterFlows": flows.to_dict(orient="records"),
                "clusters": cluster_payload,
                "gaps": gaps.to_dict(orient="records"),
                "riskFlags": risk_flags.to_dict(orient="records")}
@@ -621,7 +647,8 @@ def main():
     resilience = network_resilience(graph, df)
     gaps = data_gaps(df, graph)
     risk_flags = risk_flags_summary(df)
-    write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, timeline, args.out)
+    flows = cluster_flows(df, edges)
+    write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows, timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()
     print(f"Готово: {len(df)} узлов, {len(edges)} рёбер, {df.cluster_id.nunique()} кластеров")
