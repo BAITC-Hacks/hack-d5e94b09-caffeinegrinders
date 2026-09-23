@@ -64,6 +64,43 @@ class PipelineTest(unittest.TestCase):
         self.assertTrue(self.top.priority_score.is_monotonic_decreasing)
         self.assertTrue(self.top.why.str.len().gt(0).all())
 
+    def test_cycles_follow_real_transfers(self):
+        cycles = pd.read_csv(self.out / "cycles.csv")
+        edges = pd.read_parquet(ROOT / "data" / "edges.parquet")
+        amount = {(e.src, e.dst): e.sum_kzt for e in edges.itertuples(index=False)}
+        seeds = set(self.nodes.gid[self.nodes.is_seed])
+        for row in cycles.itertuples(index=False):
+            path = [int(x) for x in row.path.split(" → ")]
+            self.assertEqual(path[0], path[-1])
+            self.assertEqual(row.length, len(path) - 1)
+            self.assertLessEqual(row.length, 4)
+            hops = list(zip(path, path[1:]))
+            self.assertTrue(all(hop in amount for hop in hops))
+            self.assertTrue(np.isclose(row.bottleneck_kzt, min(amount[hop] for hop in hops), atol=.01))
+            self.assertEqual(row.n_seed, len(set(path) & seeds))
+        in_cycles = set(int(x) for path in cycles.path for x in path.split(" → "))
+        self.assertEqual(in_cycles, set(self.nodes.gid[self.nodes.cycles > 0]))
+
+    def test_boundary_estimate_and_flags(self):
+        boundary = self.nodes[self.nodes.boundary]
+        self.assertTrue(boundary.p_hidden_outgoing.between(0, 1).all())
+        self.assertTrue((self.nodes.p_hidden_outgoing[~self.nodes.boundary] == 0).all())
+        self.assertTrue(self.nodes.attention.str.len().between(1, 200).all())
+
+    def test_resilience_and_gaps(self):
+        resilience = pd.read_csv(self.out / "resilience.csv")
+        self.assertEqual(set(resilience.strategy), {"priority", "random"})
+        start = resilience[resilience.removed == 0]
+        self.assertEqual(start.seed_reach_share.tolist(), [1.0, 1.0])
+        for _, group in resilience.groupby("strategy"):
+            self.assertTrue(group.sort_values("removed").edges_left.is_monotonic_decreasing)
+        gaps = pd.read_csv(self.out / "data_gaps.csv").set_index("gap")
+        boundary_total = gaps.loc[["boundary_likely_continues", "boundary_other"], "n_nodes"].sum()
+        self.assertEqual(boundary_total, self.nodes.boundary.sum())
+        self.assertEqual(gaps.loc["seed_without_outgoing", "n_nodes"],
+                         (self.nodes.is_seed & (self.nodes.out_deg == 0)).sum())
+        self.assertTrue(gaps.next_request.str.len().gt(0).all())
+
     def test_viewer_contains_graph(self):
         html = (self.out / "network.html").read_text(encoding="utf-8")
         self.assertNotIn("/* GRAPH_DATA */ null", html)

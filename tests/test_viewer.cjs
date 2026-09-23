@@ -31,6 +31,7 @@ const nodes = [1, 2, 3].map(id => ({
   gid: String(id), cluster: id === 1 ? 1 : 2, score: .5,
   role: 'peripheral', evidence: 'test', depth: 1, seed: false,
   incoming: 1, outgoing: 1, inKzt: 100, outKzt: 100, seedReach: 1,
+  cycles: 0, syncPayers: 1, pHidden: 0, attention: 'нет',
 }));
 const edges = [{ src: '1', dst: '2', amount: 100, count: 1 },
   { src: '2', dst: '3', amount: 100, count: 1 }];
