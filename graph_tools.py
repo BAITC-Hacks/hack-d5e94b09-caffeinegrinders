@@ -11,6 +11,9 @@ import pandas as pd
 
 from run import build_model
 
+# money_paths stops scanning after this many simple paths and reports `truncated`.
+PATH_SCAN_LIMIT = 500
+
 NODE_FIELDS = ["role", "role_score", "priority_score", "cluster_id", "depth", "is_seed",
                "in_deg", "out_deg", "in_kzt", "out_kzt", "seed_reach", "boundary",
                "p_hidden_outgoing", "cycles", "sync_payers_max", "priority_base",
@@ -69,6 +72,8 @@ class GraphIndex:
         return profile
 
     def counterparties(self, gid, direction: str = "both", limit: int = 15) -> dict:
+        if direction not in ("in", "out", "both"):
+            raise ValueError("direction must be in, out or both")
         gid = self._check(gid)
         rows = []
         if direction in ("in", "both"):
@@ -82,6 +87,8 @@ class GraphIndex:
 
     def shared_counterparties(self, gids, direction: str = "downstream", max_hops: int = 3, limit: int = 10) -> dict:
         """Nodes reached by money from several given gids (downstream) or sending money to them (upstream)."""
+        if direction not in ("downstream", "upstream"):
+            raise ValueError("direction must be downstream or upstream")
         sources = list(dict.fromkeys(self._check(g) for g in gids))
         graph = self.graph if direction == "downstream" else self.graph.reverse(copy=False)
         reached = defaultdict(dict)
@@ -99,13 +106,19 @@ class GraphIndex:
 
     def money_paths(self, src, dst, max_hops: int = 4, limit: int = 5) -> dict:
         src, dst = self._check(src), self._check(dst)
+        if src == dst:
+            raise ValueError("src и dst совпадают; возвратные потоки через узел ищет node_cycles")
         paths = []
-        for path in islice(nx.all_simple_paths(self.graph, src, dst, cutoff=max_hops), 500):
+        # One extra path tells truncation apart from an exact count of PATH_SCAN_LIMIT.
+        for path in islice(nx.all_simple_paths(self.graph, src, dst, cutoff=max_hops), PATH_SCAN_LIMIT + 1):
             amounts = [self.graph[a][b]["sum_kzt"] for a, b in zip(path, path[1:])]
             paths.append({"path": [str(node) for node in path], "hops": len(path) - 1,
                           "bottleneck_kzt": min(amounts), "amounts_kzt": amounts})
+        truncated = len(paths) > PATH_SCAN_LIMIT
+        paths = paths[:PATH_SCAN_LIMIT]
         paths.sort(key=lambda p: (p["hops"], -p["bottleneck_kzt"]))
-        return {"src": str(src), "dst": str(dst), "max_hops": max_hops, "total": len(paths), "shown": paths[:limit]}
+        return {"src": str(src), "dst": str(dst), "max_hops": max_hops,
+                "total": len(paths), "truncated": truncated, "shown": paths[:limit]}
 
     def top_nodes(self, role: str | None = None, cluster_id: int | None = None,
                   flagged_only: bool = False, limit: int = 10) -> dict:
