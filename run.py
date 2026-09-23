@@ -697,6 +697,33 @@ def component_role_matrix(graph: nx.DiGraph, df: pd.DataFrame):
     ).reset_index(drop=True)
 
 
+def component_attention_summary(graph: nx.DiGraph, df: pd.DataFrame, attention_rows: pd.DataFrame):
+    """Optional attention flags aggregated by weak component."""
+    columns = ["component_id", "flag", "n_nodes", "share_component",
+               "avg_priority_score", "top_gids", "meaning"]
+    if attention_rows.empty:
+        return pd.DataFrame(columns=columns)
+    components = sorted(nx.weakly_connected_components(graph), key=lambda c: (-len(c), min(c)))
+    component_id = {int(gid): idx for idx, members in enumerate(components, start=1) for gid in members}
+    component_sizes = {idx: len(members) for idx, members in enumerate(components, start=1)}
+    work = attention_rows.copy()
+    work["component_id"] = work.gid.map(component_id).astype(int)
+    rows = []
+    for (cid, flag), group in work.groupby(["component_id", "flag"], sort=True):
+        leaders = group.sort_values(["priority_score", "gid"], ascending=[False, True]).head(5)
+        n_nodes = group.gid.nunique()
+        rows.append({"component_id": int(cid),
+                     "flag": flag,
+                     "n_nodes": int(n_nodes),
+                     "share_component": round(n_nodes / component_sizes[cid], 4),
+                     "avg_priority_score": round(float(group.priority_score.mean()), 6),
+                     "top_gids": ";".join(str(int(x)) for x in leaders.gid),
+                     "meaning": group.meaning.iloc[0]})
+    return pd.DataFrame(rows, columns=columns).sort_values(
+        ["component_id", "n_nodes", "flag"], ascending=[True, False, True]
+    ).reset_index(drop=True)
+
+
 def amount_band_summary(tx: pd.DataFrame):
     """Transaction amount distribution in fixed, explainable KZT bands."""
     columns = ["amount_band", "n_tx", "sum_kzt", "share_tx", "share_kzt"]
@@ -996,6 +1023,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   risk_flags: pd.DataFrame, flows: pd.DataFrame,
                   seed_report: pd.DataFrame, seed_components: pd.DataFrame,
                   components: pd.DataFrame, component_roles: pd.DataFrame,
+                  component_attention: pd.DataFrame,
                   amount_bands: pd.DataFrame, roles: pd.DataFrame,
                   top_edges: pd.DataFrame, daily: pd.DataFrame,
                   boundary_queue: pd.DataFrame, cluster_roles: pd.DataFrame,
@@ -1075,6 +1103,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     seed_components.to_csv(out / "seed_components.csv", index=False)
     components.to_csv(out / "components.csv", index=False)
     component_roles.to_csv(out / "component_roles.csv", index=False)
+    component_attention.to_csv(out / "component_attention.csv", index=False)
     amount_bands.to_csv(out / "amount_bands.csv", index=False)
     roles.to_csv(out / "role_summary.csv", index=False)
     top_edges.to_csv(out / "top_edges.csv", index=False)
@@ -1140,6 +1169,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "seedComponents": seed_components.to_dict(orient="records"),
                "components": components.to_dict(orient="records"),
                "componentRoles": component_roles.to_dict(orient="records"),
+               "componentAttention": component_attention.to_dict(orient="records"),
                "amountBands": amount_bands.to_dict(orient="records"),
                "roleSummary": roles.to_dict(orient="records"),
                "topEdges": top_edges.to_dict(orient="records"),
@@ -1195,6 +1225,7 @@ def main():
     cluster_roles = cluster_role_matrix(df)
     seed_roles = seed_role_reach(graph, df)
     attention_rows = attention_examples(df)
+    component_attention = component_attention_summary(graph, df, attention_rows)
     cluster_attention = cluster_attention_summary(df, attention_rows)
     route_nodes = route_node_membership(routes, df)
     cycle_nodes = cycle_node_membership(cycles, df)
@@ -1204,7 +1235,7 @@ def main():
     counterparties = top_counterparties(edges, df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                   seed_report, seed_components, components, component_roles,
-                  amount_bands, roles, top_edges,
+                  component_attention, amount_bands, roles, top_edges,
                   daily, boundary_queue, cluster_roles, seed_roles, attention_rows, cluster_attention,
                   route_nodes, cycle_nodes, depths, cluster_depths, role_depths, counterparties,
                   timeline, args.out)

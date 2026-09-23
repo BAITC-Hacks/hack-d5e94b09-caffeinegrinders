@@ -25,7 +25,7 @@ def check_viewer(path: Path) -> dict:
     payload = extract_payload(path.read_text(encoding="utf-8"))
     required = {"nodes", "edges", "cycles", "routes", "clusters", "clusterFlows",
                 "gaps", "riskFlags", "seedCoverage", "seedComponents", "components",
-                "componentRoles", "amountBands",
+                "componentRoles", "componentAttention", "amountBands",
                 "roleSummary", "topEdges", "dailySummary", "boundaryReview",
                 "clusterRoles", "seedRoleReach", "attentionExamples", "clusterAttention", "routeNodes",
                 "cycleNodes", "depthSummary", "clusterDepths", "roleDepths",
