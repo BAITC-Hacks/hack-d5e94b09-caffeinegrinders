@@ -70,6 +70,8 @@ TOOL_DEFINITIONS = [
                   {"cluster_id": {"type": "integer", "minimum": 1}}, ["cluster_id"]),
     function_tool("node_cycles", "Directed cycles of up to four transfers through one client.",
                   {"gid": GID, "limit": LIMIT}, ["gid"]),
+    function_tool("node_routes", "Repeated forwarding routes and chains through one client.",
+                  {"gid": GID, "limit": LIMIT}, ["gid"]),
 ]
 
 
@@ -134,6 +136,9 @@ class OpenAICompatibleAssistant:
             elif name == "node_cycles":
                 result = self.index.node_cycles(arguments["gid"],
                                                 self._limit(arguments.get("limit"), 5))
+            elif name == "node_routes":
+                result = self.index.node_routes(arguments["gid"],
+                                                self._limit(arguments.get("limit"), 10))
             else:
                 raise ValueError(f"unknown tool: {name}")
             return dumps(result)

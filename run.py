@@ -21,6 +21,9 @@ NEAR_THRESHOLD_KZT = 10_000
 SYNC_PAYERS_MIN = 3
 REPEAT_AMOUNT_MIN = 4
 REMOVAL_STEPS = (0, 5, 10, 20, 50, 100)
+RELAY_MAX_LAG_DAYS = 2
+RELAY_SHARE = (.5, 1.05)
+STABLE_ROUTE_DAYS = 2
 
 
 def load_data(path: Path):
@@ -205,6 +208,71 @@ def daily_timeline(tx: pd.DataFrame):
     return timeline[columns].sort_values(["gid", "date"]).reset_index(drop=True)
 
 
+def find_routes(tx: pd.DataFrame, df: pd.DataFrame):
+    """Forwarding routes based on timing and similar transfer amounts.
+
+    A repeated route A -> B -> C means B forwarded 50-105% of an incoming
+    transfer from A to C within 0-2 days on at least two different forwarding
+    days. A chain A -> B -> C -> D links two such relay episodes through the
+    same B -> C transfer. This is a structural clue, not proof that the exact
+    same money moved.
+    """
+    route_columns = ["route_id", "kind", "hops", "path", "relay_days",
+                     "forwarded_kzt", "first_date", "last_date", "n_seed"]
+    if tx.empty:
+        df["relay_routes"] = 0
+        df["chain_transits"] = 0
+        return df, pd.DataFrame(columns=route_columns)
+
+    tx = tx.reset_index(drop=True).rename_axis("tx_id").reset_index()
+    hop_in = tx.rename(columns={"tx_id": "in_id", "src": "a", "dst": "b",
+                                "date": "d1", "sum_kzt": "s1"})
+    hop_out = tx.rename(columns={"tx_id": "out_id", "src": "b", "dst": "c",
+                                 "date": "d2", "sum_kzt": "s2"})
+    relays = hop_in.merge(hop_out, on="b")
+    lag = (relays.d2 - relays.d1).dt.days
+    relays = relays[(relays.a != relays.c) & lag.between(0, RELAY_MAX_LAG_DAYS)
+                    & relays.s2.between(RELAY_SHARE[0] * relays.s1, RELAY_SHARE[1] * relays.s1)]
+
+    nxt = relays.rename(columns={"in_id": "out_id", "a": "b", "b": "c", "c": "d",
+                                 "d1": "d2", "s1": "s2", "out_id": "last_id",
+                                 "d2": "d3", "s2": "s3"})
+    chains = relays.merge(nxt, on=["out_id", "b", "c", "d2", "s2"])
+    chains = chains[chains.d != chains.a]
+
+    def summarise(frame, nodes, last_id, last_sum, last_date, kind):
+        rows = []
+        for key, group in frame.groupby(nodes, sort=False):
+            forwarded = group.drop_duplicates(last_id)[last_sum].sum()
+            rows.append({"kind": kind, "hops": len(nodes) - 1,
+                         "path": " → ".join(str(node) for node in key),
+                         "relay_days": group[last_date].dt.date.nunique(),
+                         "forwarded_kzt": round(float(forwarded), 2),
+                         "first_date": group.d1.min().date().isoformat(),
+                         "last_date": group[last_date].max().date().isoformat(),
+                         "nodes": key})
+        return rows
+
+    rows = summarise(relays, ["a", "b", "c"], "out_id", "s2", "d2", "repeated")
+    rows = [row for row in rows if row["relay_days"] >= STABLE_ROUTE_DAYS]
+    rows += summarise(chains, ["a", "b", "c", "d"], "last_id", "s3", "d3", "chain")
+    seeds = set(df.gid[df.is_seed])
+    relay_middle, chain_inner = Counter(), Counter()
+    for row in rows:
+        inner = row["nodes"][1:-1]
+        row["n_seed"] = sum(node in seeds for node in row["nodes"])
+        (relay_middle if row["kind"] == "repeated" else chain_inner).update(inner)
+    routes = pd.DataFrame(rows, columns=["kind", "hops", "path", "relay_days",
+                                         "forwarded_kzt", "first_date", "last_date",
+                                         "n_seed"])
+    routes = routes.sort_values(["kind", "relay_days", "forwarded_kzt", "path"],
+                                ascending=[False, False, False, True]).reset_index(drop=True)
+    routes.insert(0, "route_id", range(1, len(routes) + 1))
+    df["relay_routes"] = df.gid.map(relay_middle).fillna(0).astype(int)
+    df["chain_transits"] = df.gid.map(chain_inner).fillna(0).astype(int)
+    return df, routes[route_columns]
+
+
 def flag_attention(df: pd.DataFrame):
     """Short, checkable hints for the analyst; they do not change role or priority."""
     depth_cut = df.groupby("depth").in_deg.transform(lambda s: s.quantile(.99))
@@ -215,6 +283,10 @@ def flag_attention(df: pd.DataFrame):
             items.append(f"возвратный поток с seed ({r.cycles} цикл.)")
         elif r.cycles:
             items.append(f"возвратный поток ({r.cycles} цикл.)")
+        if r.relay_routes:
+            items.append(f"повторная пересылка за ≤2 дня ({r.relay_routes} маршр.)")
+        elif r.chain_transits:
+            items.append(f"звено сквозной цепочки ({r.chain_transits})")
         if r.sync_payers_max >= SYNC_PAYERS_MIN:
             items.append(f"{r.sync_payers_max} плательщиков в один день")
         if r.repeat_amount_max >= REPEAT_AMOUNT_MIN:
@@ -385,13 +457,15 @@ def data_gaps(df: pd.DataFrame, graph: nx.DiGraph):
 
 
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
-                  resilience: pd.DataFrame, gaps: pd.DataFrame, timeline: pd.DataFrame, out: Path):
+                  routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
+                  timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
                  "in_tx", "out_tx", "seed_reach", "bridge", "rapid_48h", "boundary",
                  "p_hidden_outgoing", "cycles", "cycle_with_seed", "sync_payers_max",
-                 "repeat_amount_max", "near_threshold_in", "priority_base",
+                 "repeat_amount_max", "near_threshold_in", "relay_routes", "chain_transits",
+                 "priority_base",
                  "priority_payers", "priority_incoming", "priority_seed_reach",
                  "priority_bridge", "priority_recipients", "priority_rapid",
                  "priority_role_factor", "priority_boundary_factor", "priority_seed_factor",
@@ -446,6 +520,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                    f"итог {r.priority_score:.3f}."), axis=1)
     leaders[["rank", "gid", "role", "priority_score", "why", "attention"]].to_csv(out / "top_nodes.csv", index=False)
     cycles.to_csv(out / "cycles.csv", index=False)
+    routes.to_csv(out / "routes.csv", index=False)
     resilience.to_csv(out / "resilience.csv", index=False)
     gaps.to_csv(out / "data_gaps.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
@@ -468,6 +543,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                           "seedReach": int(r.seed_reach), "boundary": bool(r.boundary),
                           "cycles": int(r.cycles), "syncPayers": int(r.sync_payers_max),
                           "nearThresholdIn": int(r.near_threshold_in),
+                          "relayRoutes": int(r.relay_routes),
+                          "chainTransits": int(r.chain_transits),
                           "inTx": int(r.in_tx), "outTx": int(r.out_tx),
                           "pHidden": float(r.p_hidden_outgoing), "attention": r.attention,
                           "priority": {
@@ -486,6 +563,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                          for r in df.itertuples(index=False)],
                "edges": [{"src": str(r.src), "dst": str(r.dst), "amount": float(r.sum_kzt), "count": int(r.n_tx)}
                          for r in edges.itertuples(index=False)],
+               "routes": routes.to_dict(orient="records"),
                "clusters": cluster_payload,
                "gaps": gaps.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
@@ -498,9 +576,10 @@ def build_model(data: Path):
     nodes, edges, tx = load_data(data)
     graph, df = graph_features(nodes, edges, tx)
     df, cycles = find_cycles(graph, df)
+    df, routes = find_routes(tx, df)
     df = flag_attention(rank_nodes(score_roles(assign_clusters(graph, df, edges))))
     timeline = daily_timeline(tx)
-    return nodes, edges, graph, df, cycles, timeline
+    return nodes, edges, graph, df, cycles, routes, timeline
 
 
 def main():
@@ -508,15 +587,16 @@ def main():
     parser.add_argument("--data", type=Path, default=ROOT / "data")
     parser.add_argument("--out", type=Path, default=ROOT / "out")
     args = parser.parse_args()
-    nodes, edges, graph, df, cycles, timeline = build_model(args.data)
+    nodes, edges, graph, df, cycles, routes, timeline = build_model(args.data)
     resilience = network_resilience(graph, df)
     gaps = data_gaps(df, graph)
-    write_outputs(df, edges, cycles, resilience, gaps, timeline, args.out)
+    write_outputs(df, edges, cycles, routes, resilience, gaps, timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()
     print(f"Готово: {len(df)} узлов, {len(edges)} рёбер, {df.cluster_id.nunique()} кластеров")
     print(f"Роли: {df.role.value_counts().to_dict()}")
     print(f"Циклов до {CYCLE_MAX_LEN} переводов: {len(cycles)}; узлов с флагами: {(df.attention != 'нет').sum()}")
+    print(f"Маршрутов пересылки: {(routes.kind == 'repeated').sum()} повторных, {(routes.kind == 'chain').sum()} цепочек")
     print(f"Дней активности в timeline.csv: {len(timeline)}")
     print(f"Файлы: {args.out.resolve()}")
 
