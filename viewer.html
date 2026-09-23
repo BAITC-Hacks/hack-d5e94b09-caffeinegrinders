@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Граф денег — обзор сети</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--panel:#111a2e;--line:#26334c;--text:#e8eef9;--muted:#9aabc5;--accent:#78dcff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+header{height:68px;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+h1{font-size:19px;margin:0}small,.muted{color:var(--muted)}main{display:grid;grid-template-columns:310px minmax(0,1fr) 330px;height:calc(100vh - 68px)}
+aside{padding:17px;overflow:auto;background:var(--panel)}aside:first-child{border-right:1px solid var(--line)}aside:last-child{border-left:1px solid var(--line)}
+h2{font-size:15px;margin:0 0 12px}h3{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:23px 0 8px}
+input,select,button{background:#18243c;color:var(--text);border:1px solid #344662;border-radius:8px;padding:9px;font:inherit}
+input{width:100%;margin-bottom:9px}select{width:100%;margin:5px 0 11px}button{cursor:pointer}button:hover,.row:hover{background:#243858}
+.buttons{display:flex;gap:7px}.buttons button{flex:1}.active{border-color:var(--accent);color:var(--accent)}
+#stage{position:relative;overflow:hidden}canvas{width:100%;height:100%;display:block;cursor:grab}canvas:active{cursor:grabbing}
+.hint{position:absolute;left:16px;bottom:16px;padding:8px 12px;background:#10192cdd;border:1px solid var(--line);border-radius:8px;color:var(--muted);pointer-events:none}
+.legend{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px}.swatch{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+.row{display:flex;justify-content:space-between;gap:10px;padding:7px 8px;border-bottom:1px solid #22304a;cursor:pointer;border-radius:5px;font-size:12px}
+.row span:first-child{overflow:hidden;text-overflow:ellipsis}.row b{font-variant-numeric:tabular-nums;color:var(--accent)}
+.pill{display:inline-block;border:1px solid #42536d;border-radius:20px;padding:2px 8px;margin:3px 3px 3px 0;font-size:11px}
+.metric{display:flex;justify-content:space-between;border-bottom:1px solid #22304a;padding:6px 0;gap:10px}.metric strong{font-variant-numeric:tabular-nums;text-align:right}
+#gidTitle{font-size:18px;word-break:break-all;margin-bottom:6px}.note{padding:10px;background:#17243b;border-left:3px solid var(--accent);border-radius:5px}
+@media(max-width:1050px){main{grid-template-columns:240px minmax(0,1fr) 280px}}@media(max-width:760px){main{display:block;height:auto}aside{height:auto!important;border:0!important}#stage{height:65vh}}
+</style>
+</head>
+<body>
+<header><div><h1>Граф денег</h1><small>Гипотезы для AML-проверки · стрелки показывают направление перевода</small></div><small id="summary"></small></header>
+<main>
+<aside>
+  <h2>Поиск и фильтры</h2>
+  <input id="search" inputmode="numeric" placeholder="Введите gid и нажмите Enter" aria-label="Поиск по gid">
+  <div class="buttons"><button id="overview" class="active">Вся сеть</button><button id="one">1 шаг</button><button id="two">2 шага</button></div>
+  <h3>Окраска</h3><select id="colorMode"><option value="role">По роли</option><option value="cluster">По кластеру</option></select>
+  <h3>Кластер</h3><select id="cluster"><option value="all">Все кластеры</option></select>
+  <h3>Роли</h3><div class="legend" id="legend"></div>
+  <h3>Приоритетные узлы</h3><div id="leaders"></div>
+</aside>
+<div id="stage"><canvas id="canvas"></canvas><div class="hint" id="hint">Колесо: масштаб · перетаскивание: перемещение · клик: карточка</div></div>
+<aside>
+  <h2>Карточка узла</h2><div id="card"><p class="muted">Найдите gid или нажмите на узел схемы.</p></div>
+  <h3>Связи</h3><div id="connections" class="muted">Выберите узел.</div>
+  <h3>Оговорка</h3><p class="muted">Граф содержит только внутрибанковские исходящие переводы от seed на 4 колена. Потоки вне выборки и ниже 5 000 KZT неизвестны. Роли и приоритеты — основания для проверки, не вывод о виновности.</p>
+</aside>
+</main>
+<script>
+const data = /* GRAPH_DATA */ null;
+const roleColors={coordinator:'#f97373',consolidator:'#ffbc64',distributor:'#a98cff',transit:'#62d7d1',terminal:'#a8cf76',peripheral:'#7185a4'};
+const roleNames={coordinator:'Координатор',consolidator:'Консолидация',distributor:'Распределение',transit:'Транзит',terminal:'Конечный',peripheral:'Периферия'};
+const nodes=data.nodes, edges=data.edges, byId=new Map(nodes.map(n=>[n.gid,n])), adjacency=new Map(nodes.map(n=>[n.gid,[]]));
+for(const e of edges){adjacency.get(e.src).push({id:e.dst,edge:e,dir:'out'});adjacency.get(e.dst).push({id:e.src,edge:e,dir:'in'});}
+const fmt=x=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0}).format(x);
+const stage=document.getElementById('stage'),canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d');
+let selected=null,mode='overview',colorMode='role',cluster='all',positions=new Map(),visible=[],shownEdges=[],scale=1,ox=0,oy=0,drag=null;
+const clusters=[...new Set(nodes.map(n=>n.cluster))].sort((a,b)=>a-b);
+for(const id of clusters){let option=document.createElement('option');option.value=String(id);option.textContent=`Кластер ${id} (${nodes.filter(n=>n.cluster===id).length})`;document.getElementById('cluster').appendChild(option);}
+document.getElementById('summary').textContent=`${fmt(nodes.length)} узлов · ${fmt(edges.length)} связей · ${clusters.length} кластеров`;
+document.getElementById('legend').innerHTML=Object.entries(roleNames).map(([key,label])=>`<span><i class="swatch" style="background:${roleColors[key]}"></i>${label}</span>`).join('');
+function color(n){if(colorMode==='role')return roleColors[n.role];return `hsl(${(n.cluster*137.508)%360} 68% 63%)`;}
+function setMode(value){mode=value;for(const id of ['overview','one','two'])document.getElementById(id).classList.toggle('active',id===value);layout();}
+function layout(){
+ positions=new Map();let subset=nodes.filter(n=>cluster==='all'||String(n.cluster)===cluster);
+ if(mode==='overview'||!selected){
+  const groups=new Map();for(const n of subset){if(!groups.has(n.cluster))groups.set(n.cluster,[]);groups.get(n.cluster).push(n);}
+  const ids=[...groups.keys()].sort((a,b)=>groups.get(b).length-groups.get(a).length),cols=Math.max(1,Math.ceil(Math.sqrt(ids.length*1.5)));
+  ids.forEach((cid,i)=>{const list=groups.get(cid).sort((a,b)=>b.score-a.score);const cx=(i%cols)*650,cy=Math.floor(i/cols)*650;
+   list.forEach((n,j)=>{const angle=j*2.3999632297, radius=12+270*Math.sqrt(j/Math.max(1,list.length));positions.set(n.gid,{x:cx+radius*Math.cos(angle),y:cy+radius*Math.sin(angle)});});});
+ }else{
+  const depth=new Map([[selected,0]]),queue=[selected],limit=mode==='one'?1:2;
+  for(let i=0;i<queue.length;i++){const id=queue[i],d=depth.get(id);if(d===limit)continue;for(const item of adjacency.get(id)){if(!depth.has(item.id)&& (cluster==='all'||String(byId.get(item.id).cluster)===cluster)){depth.set(item.id,d+1);queue.push(item.id);}}}
+  positions.set(selected,{x:0,y:0});for(let ring=1;ring<=limit;ring++){const group=queue.filter(id=>depth.get(id)===ring);group.sort((a,b)=>Number(byId.get(b).score-byId.get(a).score)||a.localeCompare(b));group.forEach((id,i)=>{const a=2*Math.PI*i/group.length-Math.PI/2;positions.set(id,{x:Math.cos(a)*ring*245,y:Math.sin(a)*ring*245});});}
+ }
+ visible=subset.filter(n=>positions.has(n.gid));shownEdges=edges.filter(e=>positions.has(e.src)&&positions.has(e.dst));fit();draw();
+ document.getElementById('hint').textContent=`${fmt(visible.length)} узлов · ${fmt(shownEdges.length)} направленных связей · колесо: масштаб · клик: карточка`;
+}
+function fit(){if(!positions.size)return;const vals=[...positions.values()],xs=vals.map(p=>p.x),ys=vals.map(p=>p.y),minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);scale=Math.min((canvas.width-90)/Math.max(250,maxX-minX),(canvas.height-90)/Math.max(250,maxY-minY),2.2);ox=canvas.width/2-scale*(minX+maxX)/2;oy=canvas.height/2-scale*(minY+maxY)/2;}
+function arrow(x1,y1,x2,y2,strong){const dx=x2-x1,dy=y2-y1,l=Math.hypot(dx,dy);if(l<5)return;let ux=dx/l,uy=dy/l;let ex=x2-ux*(strong?8:4),ey=y2-uy*(strong?8:4);ctx.beginPath();ctx.moveTo(x1+ux*5,y1+uy*5);ctx.lineTo(ex,ey);ctx.stroke();const s=strong?7:4;ctx.beginPath();ctx.moveTo(ex,ey);ctx.lineTo(ex-ux*s-uy*s*.5,ey-uy*s+ux*s*.5);ctx.lineTo(ex-ux*s+uy*s*.5,ey-uy*s-ux*s*.5);ctx.closePath();ctx.fill();}
+function draw(){const w=canvas.width,h=canvas.height;ctx.clearRect(0,0,w,h);ctx.fillStyle='#0b1020';ctx.fillRect(0,0,w,h);
+ const xy=id=>{const p=positions.get(id);return p?{x:p.x*scale+ox,y:p.y*scale+oy}:null};
+ for(const e of shownEdges){const a=xy(e.src),b=xy(e.dst),strong=selected&&(e.src===selected||e.dst===selected);ctx.strokeStyle=strong?'#b8ddff':'#53647d';ctx.fillStyle=ctx.strokeStyle;ctx.globalAlpha=strong?.85:(mode==='overview'?.13:.24);ctx.lineWidth=strong?1.8:1;arrow(a.x,a.y,b.x,b.y,strong);}
+ ctx.globalAlpha=1;for(const n of visible){const p=xy(n.gid),active=n.gid===selected,r=active?7:Math.max(2.4,Math.min(5.5,2.5+n.score*3));ctx.fillStyle=color(n);ctx.beginPath();ctx.arc(p.x,p.y,r,0,2*Math.PI);ctx.fill();if(n.seed||active){ctx.strokeStyle=active?'#fff':'#b7c9dd';ctx.lineWidth=active?2:1;ctx.stroke();}if(active||mode!=='overview'&&visible.length<=35){ctx.fillStyle='#e8eef9';ctx.font='11px system-ui';ctx.fillText(n.gid,p.x+9,p.y-7);}}
+}
+function resize(){const rect=stage.getBoundingClientRect();canvas.width=Math.round(rect.width*devicePixelRatio);canvas.height=Math.round(rect.height*devicePixelRatio);fit();draw();}new ResizeObserver(resize).observe(stage);
+function select(id,focus=true){id=String(id);if(!byId.has(id)){document.getElementById('search').setCustomValidity('gid отсутствует в данных');document.getElementById('search').reportValidity();return;}document.getElementById('search').setCustomValidity('');if(cluster!=='all'&&String(byId.get(id).cluster)!==cluster){cluster='all';document.getElementById('cluster').value='all';}selected=id;document.getElementById('search').value=id;if(focus)setMode('one');else{layout();}renderCard();}
+function renderCard(){const n=byId.get(selected);if(!n)return;const card=document.getElementById('card');card.textContent='';const title=document.createElement('div');title.id='gidTitle';title.textContent=n.gid;card.appendChild(title);
+ const pills=document.createElement('div');pills.innerHTML=`<span class="pill">${roleNames[n.role]}</span><span class="pill">Кластер ${n.cluster}</span><span class="pill">Колено ${n.depth}</span>${n.seed?'<span class="pill">Seed</span>':''}${n.boundary?'<span class="pill">Граница обхода</span>':''}`;card.appendChild(pills);
+ const note=document.createElement('p');note.className='note';note.textContent=n.evidence;card.appendChild(note);
+ for(const [key,value] of [['Приоритет',n.score.toFixed(3)],['Плательщики',n.incoming],['Получатели',n.outgoing],['Входящий поток',fmt(n.inKzt)+' KZT'],['Исходящий поток',fmt(n.outKzt)+' KZT'],['Достижим из seed',n.seedReach]]){const row=document.createElement('div');row.className='metric';const a=document.createElement('span');a.textContent=key;const b=document.createElement('strong');b.textContent=value;row.append(a,b);card.appendChild(row);}
+ const conn=document.getElementById('connections');conn.textContent='';const list=adjacency.get(selected).slice().sort((a,b)=>b.edge.amount-a.edge.amount).slice(0,20);if(!list.length)conn.textContent='Связей в выгрузке нет.';for(const item of list){const row=document.createElement('div');row.className='row';const a=document.createElement('span');a.textContent=`${item.dir==='in'?'←':'→'} ${item.id}`;const b=document.createElement('b');b.textContent=fmt(item.edge.amount);row.append(a,b);row.onclick=()=>select(item.id);conn.appendChild(row);}if(adjacency.get(selected).length>20){const more=document.createElement('p');more.className='muted';more.textContent=`Показаны 20 из ${adjacency.get(selected).length} связей`;conn.appendChild(more);}}
+const leaders=nodes.slice().sort((a,b)=>b.score-a.score||a.gid.localeCompare(b.gid)).slice(0,30),box=document.getElementById('leaders');leaders.forEach((n,i)=>{const row=document.createElement('div');row.className='row';const label=document.createElement('span');label.textContent=`${i+1}. ${n.gid}`;const score=document.createElement('b');score.textContent=n.score.toFixed(3);row.append(label,score);row.onclick=()=>select(n.gid);box.appendChild(row);});
+document.getElementById('search').addEventListener('keydown',e=>{if(e.key==='Enter')select(e.target.value.trim());});for(const value of ['overview','one','two'])document.getElementById(value).onclick=()=>setMode(value);
+document.getElementById('colorMode').onchange=e=>{colorMode=e.target.value;draw();};document.getElementById('cluster').onchange=e=>{cluster=e.target.value;layout();};
+canvas.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,ox,oy,moved:false};canvas.setPointerCapture(e.pointerId);});canvas.addEventListener('pointermove',e=>{if(!drag)return;const k=devicePixelRatio;ox=drag.ox+(e.clientX-drag.x)*k;oy=drag.oy+(e.clientY-drag.y)*k;drag.moved ||= Math.hypot(e.clientX-drag.x,e.clientY-drag.y)>4;draw();});canvas.addEventListener('pointerup',e=>{if(!drag)return;const moved=drag.moved;drag=null;if(moved)return;const rect=canvas.getBoundingClientRect(),x=(e.clientX-rect.left)*devicePixelRatio,y=(e.clientY-rect.top)*devicePixelRatio;let best=null,dist=12*devicePixelRatio;for(const n of visible){const p=positions.get(n.gid),d=Math.hypot(p.x*scale+ox-x,p.y*scale+oy-y);if(d<dist){best=n;dist=d;}}if(best)select(best.gid,false);});
+canvas.addEventListener('wheel',e=>{e.preventDefault();const rect=canvas.getBoundingClientRect(),x=(e.clientX-rect.left)*devicePixelRatio,y=(e.clientY-rect.top)*devicePixelRatio,f=e.deltaY<0?1.15:1/1.15;ox=x-(x-ox)*f;oy=y-(y-oy)*f;scale*=f;draw();},{passive:false});
+layout();
+</script>
+</body>
+</html>
