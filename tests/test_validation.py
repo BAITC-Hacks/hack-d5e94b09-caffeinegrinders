@@ -9,7 +9,8 @@ import pandas as pd
 from run import (
     load_data, graph_features, assign_clusters, score_roles, rank_nodes,
     find_cycles, find_routes, flag_attention, network_resilience, data_gaps,
-    risk_flags_summary, attention_examples, cluster_flows, seed_coverage, component_summary,
+    risk_flags_summary, attention_examples, cluster_attention_summary,
+    cluster_flows, seed_coverage, component_summary,
     seed_component_summary, amount_band_summary, role_summary, top_edge_summary, daily_summary,
     boundary_review, cluster_role_matrix, seed_role_reach, route_node_membership,
     cycle_node_membership, depth_summary, cluster_depth_matrix, role_depth_matrix,
@@ -103,6 +104,7 @@ class ValidationTest(unittest.TestCase):
         cluster_roles = cluster_role_matrix(df)
         seed_roles = seed_role_reach(graph, df)
         attention_rows = attention_examples(df)
+        cluster_attention = cluster_attention_summary(df, attention_rows)
         route_nodes = route_node_membership(routes, df)
         cycle_nodes = cycle_node_membership(cycles, df)
         depths = depth_summary(df)
@@ -112,7 +114,7 @@ class ValidationTest(unittest.TestCase):
         timeline = daily_timeline(tx)
         write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                       seed_report, seed_components, components, amount_bands, roles, top_edges,
-                      daily, boundary_queue, cluster_roles, seed_roles, attention_rows,
+                      daily, boundary_queue, cluster_roles, seed_roles, attention_rows, cluster_attention,
                       route_nodes, cycle_nodes, depths, cluster_depths, role_depths, counterparties,
                       timeline, self.path / "out")
         self.assertEqual(df.cluster_id.nunique(), 2)
@@ -135,6 +137,7 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(len(seed_roles), 1)
         self.assertEqual(seed_roles.loc[0, "reachable_nodes"], 0)
         self.assertTrue(pd.read_csv(self.path / "out" / "attention_examples.csv").empty)
+        self.assertTrue(pd.read_csv(self.path / "out" / "cluster_attention.csv").empty)
         self.assertTrue(pd.read_csv(self.path / "out" / "route_nodes.csv").empty)
         self.assertTrue(pd.read_csv(self.path / "out" / "cycle_nodes.csv").empty)
         self.assertEqual(pd.read_csv(self.path / "out" / "depth_summary.csv").n_nodes.sum(), 2)
