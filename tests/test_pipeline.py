@@ -96,6 +96,13 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(row.n_seed, len(set(path) & seeds))
         in_cycles = set(int(x) for path in cycles.path for x in path.split(" → "))
         self.assertEqual(in_cycles, set(self.nodes.gid[self.nodes.cycles > 0]))
+        cycle_nodes = pd.read_csv(self.out / "cycle_nodes.csv")
+        self.assertEqual(cycle_nodes.cycle_id.nunique(), len(cycles))
+        by_cycle = cycle_nodes.groupby("cycle_id").size()
+        for row in cycles.set_index("cycle_id").itertuples():
+            self.assertEqual(by_cycle.loc[row.Index], row.length)
+        self.assertTrue(set(cycle_nodes.gid).issubset(set(self.nodes.gid)))
+        self.assertTrue(cycle_nodes.position.ge(1).all())
 
     def test_boundary_estimate_and_flags(self):
         boundary = self.nodes[self.nodes.boundary]
@@ -272,6 +279,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"seedRoleReach":[', html)
         self.assertIn('"attentionExamples":[', html)
         self.assertIn('"routeNodes":[', html)
+        self.assertIn('"cycleNodes":[', html)
         self.assertIn("<canvas", html)
 
     def test_outputs_are_identical_after_input_rows_are_shuffled(self):
@@ -296,7 +304,7 @@ class PipelineTest(unittest.TestCase):
                          "components.csv", "amount_bands.csv", "role_summary.csv",
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
                          "cluster_roles.csv", "seed_role_reach.csv", "attention_examples.csv",
-                         "route_nodes.csv", "timeline.csv", "network.html"):
+                         "route_nodes.csv", "cycle_nodes.csv", "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),
