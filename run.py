@@ -1108,6 +1108,36 @@ def route_node_membership(routes: pd.DataFrame, df: pd.DataFrame):
     return pd.DataFrame(rows, columns=columns)
 
 
+def route_edge_membership(routes: pd.DataFrame, edges: pd.DataFrame, df: pd.DataFrame):
+    """Explode route paths into one row per observed route hop."""
+    columns = ["route_id", "kind", "hop", "src", "dst", "src_role", "dst_role",
+               "src_cluster", "dst_cluster", "sum_kzt", "n_tx", "path"]
+    if routes.empty:
+        return pd.DataFrame(columns=columns)
+    meta = df.set_index("gid")
+    edge_lookup = edges.set_index(["src", "dst"])
+    rows = []
+    for route in routes.itertuples(index=False):
+        path = [int(part.strip()) for part in route.path.split("→")]
+        for hop, (src, dst) in enumerate(zip(path, path[1:]), start=1):
+            edge = edge_lookup.loc[(src, dst)]
+            src_meta = meta.loc[src]
+            dst_meta = meta.loc[dst]
+            rows.append({"route_id": int(route.route_id),
+                         "kind": route.kind,
+                         "hop": int(hop),
+                         "src": int(src),
+                         "dst": int(dst),
+                         "src_role": src_meta.role,
+                         "dst_role": dst_meta.role,
+                         "src_cluster": int(src_meta.cluster_id),
+                         "dst_cluster": int(dst_meta.cluster_id),
+                         "sum_kzt": round(float(edge.sum_kzt), 2),
+                         "n_tx": int(edge.n_tx),
+                         "path": route.path})
+    return pd.DataFrame(rows, columns=columns)
+
+
 def cycle_node_membership(cycles: pd.DataFrame, df: pd.DataFrame):
     """Explode cycle paths into one row per cycle node and position."""
     columns = ["cycle_id", "position", "gid", "role", "cluster_id", "is_seed",
@@ -1305,7 +1335,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   attention_rows: pd.DataFrame, cluster_attention: pd.DataFrame,
                   role_attention: pd.DataFrame, depth_attention: pd.DataFrame,
                   attention_overlap: pd.DataFrame,
-                  route_nodes: pd.DataFrame, cycle_nodes: pd.DataFrame,
+                  route_nodes: pd.DataFrame, route_edges: pd.DataFrame,
+                  cycle_nodes: pd.DataFrame,
                   depths: pd.DataFrame, cluster_depths: pd.DataFrame,
                   role_depths: pd.DataFrame, role_flow_rows: pd.DataFrame,
                   depth_flow_rows: pd.DataFrame, counterparties: pd.DataFrame,
@@ -1398,6 +1429,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     depth_attention.to_csv(out / "depth_attention.csv", index=False)
     attention_overlap.to_csv(out / "attention_overlap.csv", index=False)
     route_nodes.to_csv(out / "route_nodes.csv", index=False)
+    route_edges.to_csv(out / "route_edges.csv", index=False)
     cycle_nodes.to_csv(out / "cycle_nodes.csv", index=False)
     depths.to_csv(out / "depth_summary.csv", index=False)
     cluster_depths.to_csv(out / "cluster_depths.csv", index=False)
@@ -1473,6 +1505,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "depthAttention": depth_attention.to_dict(orient="records"),
                "attentionOverlap": attention_overlap.to_dict(orient="records"),
                "routeNodes": route_nodes.to_dict(orient="records"),
+               "routeEdges": route_edges.to_dict(orient="records"),
                "cycleNodes": cycle_nodes.to_dict(orient="records"),
                "depthSummary": depths.to_dict(orient="records"),
                "clusterDepths": cluster_depths.to_dict(orient="records"),
@@ -1530,6 +1563,7 @@ def main():
     depth_attention = depth_attention_summary(df, attention_rows)
     attention_overlap = attention_overlap_summary(attention_rows)
     route_nodes = route_node_membership(routes, df)
+    route_edges = route_edge_membership(routes, edges, df)
     cycle_nodes = cycle_node_membership(cycles, df)
     depths = depth_summary(df)
     cluster_depths = cluster_depth_matrix(df)
@@ -1545,7 +1579,7 @@ def main():
                   seed_attention,
                   attention_rows, cluster_attention, role_attention, depth_attention,
                   attention_overlap,
-                  route_nodes, cycle_nodes, depths, cluster_depths, role_depths,
+                  route_nodes, route_edges, cycle_nodes, depths, cluster_depths, role_depths,
                   role_flow_rows, depth_flow_rows, counterparties,
                   timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES

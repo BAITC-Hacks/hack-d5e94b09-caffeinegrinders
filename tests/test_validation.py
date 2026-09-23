@@ -15,7 +15,7 @@ from run import (
     seed_component_summary, component_role_matrix, component_attention_summary,
     isolated_nodes_report, amount_band_summary, role_summary, top_edge_summary, daily_summary,
     boundary_review, cluster_role_matrix, seed_role_reach, route_node_membership,
-    cycle_node_membership, depth_summary, cluster_depth_matrix, role_depth_matrix,
+    route_edge_membership, cycle_node_membership, depth_summary, cluster_depth_matrix, role_depth_matrix,
     write_outputs, daily_timeline, role_flows, depth_flows, seed_overlap,
     seed_attention_summary, top_counterparties,
 )
@@ -118,6 +118,7 @@ class ValidationTest(unittest.TestCase):
         depth_attention = depth_attention_summary(df, attention_rows)
         attention_overlap = attention_overlap_summary(attention_rows)
         route_nodes = route_node_membership(routes, df)
+        route_edges = route_edge_membership(routes, edges, df)
         cycle_nodes = cycle_node_membership(cycles, df)
         depths = depth_summary(df)
         cluster_depths = cluster_depth_matrix(df)
@@ -134,7 +135,7 @@ class ValidationTest(unittest.TestCase):
                       seed_attention,
                       attention_rows, cluster_attention, role_attention, depth_attention,
                       attention_overlap,
-                      route_nodes, cycle_nodes, depths, cluster_depths, role_depths,
+                      route_nodes, route_edges, cycle_nodes, depths, cluster_depths, role_depths,
                       role_flow_rows, depth_flow_rows, counterparties,
                       timeline, self.path / "out")
         self.assertEqual(df.cluster_id.nunique(), 2)
@@ -171,6 +172,7 @@ class ValidationTest(unittest.TestCase):
         self.assertTrue(pd.read_csv(self.path / "out" / "depth_attention.csv").empty)
         self.assertTrue(pd.read_csv(self.path / "out" / "attention_overlap.csv").empty)
         self.assertTrue(pd.read_csv(self.path / "out" / "route_nodes.csv").empty)
+        self.assertTrue(pd.read_csv(self.path / "out" / "route_edges.csv").empty)
         self.assertTrue(pd.read_csv(self.path / "out" / "cycle_nodes.csv").empty)
         self.assertEqual(pd.read_csv(self.path / "out" / "depth_summary.csv").n_nodes.sum(), 2)
         self.assertEqual(pd.read_csv(self.path / "out" / "cluster_depths.csv").n_nodes.sum(), 2)

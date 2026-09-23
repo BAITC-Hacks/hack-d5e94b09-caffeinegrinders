@@ -151,6 +151,16 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(by_route.loc[row.Index], row.hops + 1)
         self.assertTrue(set(route_nodes.gid).issubset(set(self.nodes.gid)))
         self.assertTrue(route_nodes.position.ge(1).all())
+        route_edges = pd.read_csv(self.out / "route_edges.csv")
+        self.assertEqual(route_edges.route_id.nunique(), len(routes))
+        self.assertEqual(len(route_edges), int(routes.hops.sum()))
+        by_route_edges = route_edges.groupby("route_id").size()
+        for row in routes.set_index("route_id").itertuples():
+            self.assertEqual(by_route_edges.loc[row.Index], row.hops)
+        source_edges = pd.read_parquet(ROOT / "data" / "edges.parquet")
+        edge_pairs = set(zip(source_edges.src, source_edges.dst))
+        self.assertTrue(set(zip(route_edges.src, route_edges.dst)).issubset(edge_pairs))
+        self.assertTrue(route_edges.hop.ge(1).all())
 
     def test_resilience_and_gaps(self):
         resilience = pd.read_csv(self.out / "resilience.csv")
@@ -445,6 +455,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"depthAttention":[', html)
         self.assertIn('"attentionOverlap":[', html)
         self.assertIn('"routeNodes":[', html)
+        self.assertIn('"routeEdges":[', html)
         self.assertIn('"cycleNodes":[', html)
         self.assertIn('"depthSummary":[', html)
         self.assertIn('"clusterDepths":[', html)
@@ -480,7 +491,8 @@ class PipelineTest(unittest.TestCase):
                          "cluster_roles.csv", "seed_role_reach.csv", "seed_overlap.csv", "seed_attention.csv",
                          "attention_examples.csv",
                          "cluster_attention.csv", "role_attention.csv", "depth_attention.csv",
-                         "attention_overlap.csv", "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
+                         "attention_overlap.csv", "route_nodes.csv", "route_edges.csv",
+                         "cycle_nodes.csv", "depth_summary.csv",
                          "cluster_depths.csv", "role_depths.csv", "role_flows.csv", "depth_flows.csv",
                          "top_counterparties.csv",
                          "timeline.csv", "network.html"):
