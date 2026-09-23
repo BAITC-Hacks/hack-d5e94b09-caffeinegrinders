@@ -154,6 +154,12 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(flags.loc["cycle", "n_nodes"], (self.nodes.cycles > 0).sum())
         self.assertEqual(flags.loc["relay_route", "n_nodes"], (self.nodes.relay_routes > 0).sum())
         self.assertTrue(flags.share.between(0, 1).all())
+        attention_examples = pd.read_csv(self.out / "attention_examples.csv")
+        counts = attention_examples.groupby("flag").gid.nunique().to_dict()
+        for flag, row in flags.iterrows():
+            self.assertEqual(counts.get(flag, 0), row.n_nodes)
+        self.assertTrue(attention_examples.metric_value.notna().all())
+        self.assertTrue(attention_examples.evidence.str.len().between(1, 200).all())
         flows = pd.read_csv(self.out / "cluster_flows.csv")
         lookup = dict(zip(self.nodes.gid, self.nodes.cluster_id))
         expected = 0.0
@@ -257,6 +263,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"boundaryReview":[', html)
         self.assertIn('"clusterRoles":[', html)
         self.assertIn('"seedRoleReach":[', html)
+        self.assertIn('"attentionExamples":[', html)
         self.assertIn("<canvas", html)
 
     def test_outputs_are_identical_after_input_rows_are_shuffled(self):
@@ -280,7 +287,8 @@ class PipelineTest(unittest.TestCase):
                          "risk_flags.csv", "cluster_flows.csv", "seed_coverage.csv",
                          "components.csv", "amount_bands.csv", "role_summary.csv",
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
-                         "cluster_roles.csv", "seed_role_reach.csv", "timeline.csv", "network.html"):
+                         "cluster_roles.csv", "seed_role_reach.csv", "attention_examples.csv",
+                         "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),

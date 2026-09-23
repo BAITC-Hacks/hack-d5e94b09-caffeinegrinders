@@ -511,6 +511,46 @@ def risk_flags_summary(df: pd.DataFrame):
                          for key, mask, meaning in flags])
 
 
+def attention_examples(df: pd.DataFrame):
+    """One row per node and optional attention flag for transparent review."""
+    columns = ["flag", "gid", "role", "cluster_id", "priority_score",
+               "metric_value", "meaning", "evidence", "attention"]
+    flags = [
+        ("cycle", df.cycles > 0, df.cycles, "узел входит в направленный возвратный поток"),
+        ("relay_route", df.relay_routes > 0, df.relay_routes,
+         "узел является посредником устойчивого маршрута пересылки"),
+        ("chain_transit", df.chain_transits > 0, df.chain_transits,
+         "узел является внутренним звеном сквозной цепочки"),
+        ("sync_payers", df.sync_payers_max >= SYNC_PAYERS_MIN, df.sync_payers_max,
+         "несколько разных плательщиков в один день"),
+        ("repeat_amount", df.repeat_amount_max >= REPEAT_AMOUNT_MIN, df.repeat_amount_max,
+         "одна и та же сумма отправлялась многократно"),
+        ("near_threshold", (df.near_threshold_in >= 3) & (df.near_threshold_in >= .5 * df.in_tx),
+         df.near_threshold_in, "много входящих переводов у порога 5-10 тыс. KZT"),
+        ("boundary_likely_continues", df.boundary & (df.p_hidden_outgoing >= .5),
+         df.p_hidden_outgoing, "граничный узел с вероятным скрытым исходящим продолжением"),
+        ("gives_more_than_received", (df.out_kzt > df.in_kzt) & (df.in_kzt > 0),
+         df.out_kzt - df.in_kzt, "исходящий поток выше видимого входа"),
+    ]
+    rows = []
+    for flag, mask, values, meaning in flags:
+        group = df[mask].copy()
+        if group.empty:
+            continue
+        group["metric_value"] = values[mask].round(6)
+        for row in group.sort_values(["priority_score", "gid"], ascending=[False, True]).itertuples(index=False):
+            rows.append({"flag": flag,
+                         "gid": int(row.gid),
+                         "role": row.role,
+                         "cluster_id": int(row.cluster_id),
+                         "priority_score": round(float(row.priority_score), 6),
+                         "metric_value": float(row.metric_value),
+                         "meaning": meaning,
+                         "evidence": row.evidence,
+                         "attention": row.attention})
+    return pd.DataFrame(rows, columns=columns)
+
+
 def cluster_flows(df: pd.DataFrame, edges: pd.DataFrame):
     """Aggregated transfers between clusters for ingress/egress review."""
     cluster_of = dict(zip(df.gid, df.cluster_id))
@@ -717,7 +757,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   amount_bands: pd.DataFrame, roles: pd.DataFrame,
                   top_edges: pd.DataFrame, daily: pd.DataFrame,
                   boundary_queue: pd.DataFrame, cluster_roles: pd.DataFrame,
-                  seed_roles: pd.DataFrame, timeline: pd.DataFrame, out: Path):
+                  seed_roles: pd.DataFrame, attention_rows: pd.DataFrame,
+                  timeline: pd.DataFrame, out: Path):
     out.mkdir(parents=True, exist_ok=True)
     node_cols = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence",
                  "depth", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt",
@@ -793,6 +834,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     boundary_queue.to_csv(out / "boundary_review.csv", index=False)
     cluster_roles.to_csv(out / "cluster_roles.csv", index=False)
     seed_roles.to_csv(out / "seed_role_reach.csv", index=False)
+    attention_rows.to_csv(out / "attention_examples.csv", index=False)
     timeline.to_csv(out / "timeline.csv", index=False)
 
     timeline_by_gid = defaultdict(list)
@@ -847,7 +889,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "dailySummary": daily.to_dict(orient="records"),
                "boundaryReview": boundary_queue.to_dict(orient="records"),
                "clusterRoles": cluster_roles.to_dict(orient="records"),
-               "seedRoleReach": seed_roles.to_dict(orient="records")}
+               "seedRoleReach": seed_roles.to_dict(orient="records"),
+               "attentionExamples": attention_rows.to_dict(orient="records")}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     (out / "network.html").write_text(page, encoding="utf-8")
@@ -885,9 +928,11 @@ def main():
     boundary_queue = boundary_review(df)
     cluster_roles = cluster_role_matrix(df)
     seed_roles = seed_role_reach(graph, df)
+    attention_rows = attention_examples(df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
                   seed_report, components, amount_bands, roles, top_edges,
-                  daily, boundary_queue, cluster_roles, seed_roles, timeline, args.out)
+                  daily, boundary_queue, cluster_roles, seed_roles, attention_rows,
+                  timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES
     assert df.evidence.str.len().between(1, 200).all()
     print(f"Готово: {len(df)} узлов, {len(edges)} рёбер, {df.cluster_id.nunique()} кластеров")
