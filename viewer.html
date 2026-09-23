@@ -13,6 +13,8 @@ aside{padding:17px;overflow:auto;background:var(--panel)}aside:first-child{borde
 h2{font-size:15px;margin:0 0 12px}h3{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:23px 0 8px}
 input,select,button{background:#18243c;color:var(--text);border:1px solid #344662;border-radius:8px;padding:9px;font:inherit}
 input{width:100%;margin-bottom:9px}select{width:100%;margin:5px 0 11px}button{cursor:pointer}button:hover,.row:hover{background:#243858}
+.check{display:flex;align-items:center;gap:8px;margin:7px 0;color:var(--muted);font-size:12px}.check input{width:auto;margin:0}
+.split{display:grid;grid-template-columns:1fr 92px;gap:7px;align-items:center}
 .buttons{display:flex;gap:7px}.buttons button{flex:1}.active{border-color:var(--accent);color:var(--accent)}
 #stage{position:relative;overflow:hidden}canvas{width:100%;height:100%;display:block;cursor:grab}canvas:active{cursor:grabbing}
 .hint{position:absolute;left:16px;bottom:16px;padding:8px 12px;background:#10192cdd;border:1px solid var(--line);border-radius:8px;color:var(--muted);pointer-events:none}
@@ -37,6 +39,12 @@ input{width:100%;margin-bottom:9px}select{width:100%;margin:5px 0 11px}button{cu
   <div class="buttons"><button id="overview" class="active">Вся сеть</button><button id="one">1 шаг</button><button id="two">2 шага</button></div>
   <h3>Окраска</h3><select id="colorMode"><option value="role">По роли</option><option value="cluster">По кластеру</option></select>
   <h3>Кластер</h3><select id="cluster"><option value="all">Все кластеры</option></select>
+  <h3>Фильтры</h3>
+  <select id="roleFilter"><option value="all">Все роли</option></select>
+  <div class="split"><span class="muted">Мин. приоритет</span><input id="minScore" type="number" min="0" max="1" step="0.05" value="0" aria-label="Минимальный приоритет"></div>
+  <label class="check"><input id="flaggedOnly" type="checkbox"> Только с флагами</label>
+  <label class="check"><input id="seedOnly" type="checkbox"> Только seed</label>
+  <label class="check"><input id="boundaryOnly" type="checkbox"> Только граница обхода</label>
   <h3>Роли</h3><div class="legend" id="legend"></div>
   <h3>Приоритетные узлы</h3><div id="leaders"></div>
 </aside>
@@ -58,12 +66,15 @@ const stage=document.getElementById('stage'),canvas=document.getElementById('can
 let selected=null,mode='overview',colorMode='role',cluster='all',positions=new Map(),visible=[],shownEdges=[],scale=1,ox=0,oy=0,drag=null;
 const clusters=[...new Set(nodes.map(n=>n.cluster))].sort((a,b)=>a-b);
 for(const id of clusters){let option=document.createElement('option');option.value=String(id);option.textContent=`Кластер ${id} (${nodes.filter(n=>n.cluster===id).length})`;document.getElementById('cluster').appendChild(option);}
+for(const [key,label] of Object.entries(roleNames)){let option=document.createElement('option');option.value=key;option.textContent=label;document.getElementById('roleFilter').appendChild(option);}
 document.getElementById('summary').textContent=`${fmt(nodes.length)} узлов · ${fmt(edges.length)} связей · ${clusters.length} кластеров`;
 document.getElementById('legend').innerHTML=Object.entries(roleNames).map(([key,label])=>`<span><i class="swatch" style="background:${roleColors[key]}"></i>${label}</span>`).join('');
 function color(n){if(colorMode==='role')return roleColors[n.role];return `hsl(${(n.cluster*137.508)%360} 68% 63%)`;}
+function passesFilters(n){const role=document.getElementById('roleFilter').value||'all',min=Number(document.getElementById('minScore').value||0);return (cluster==='all'||String(n.cluster)===cluster)&&(role==='all'||n.role===role)&&n.score>=min&&(!document.getElementById('flaggedOnly').checked||n.attention!=='нет')&&(!document.getElementById('seedOnly').checked||n.seed)&&(!document.getElementById('boundaryOnly').checked||n.boundary);}
+function clearFilters(){document.getElementById('roleFilter').value='all';document.getElementById('minScore').value='0';for(const id of ['flaggedOnly','seedOnly','boundaryOnly'])document.getElementById(id).checked=false;}
 function setMode(value){mode=value;for(const id of ['overview','one','two'])document.getElementById(id).classList.toggle('active',id===value);layout();}
 function layout(){
- positions=new Map();let subset=nodes.filter(n=>cluster==='all'||String(n.cluster)===cluster);
+ positions=new Map();let subset=nodes.filter(passesFilters);
  if(mode==='overview'||!selected){
   const groups=new Map();for(const n of subset){if(!groups.has(n.cluster))groups.set(n.cluster,[]);groups.get(n.cluster).push(n);}
   const ids=[...groups.keys()].sort((a,b)=>groups.get(b).length-groups.get(a).length),cols=Math.max(1,Math.ceil(Math.sqrt(ids.length*1.5)));
@@ -71,7 +82,7 @@ function layout(){
    list.forEach((n,j)=>{const angle=j*2.3999632297, radius=12+270*Math.sqrt(j/Math.max(1,list.length));positions.set(n.gid,{x:cx+radius*Math.cos(angle),y:cy+radius*Math.sin(angle)});});});
  }else{
   const depth=new Map([[selected,0]]),queue=[selected],limit=mode==='one'?1:2;
-  for(let i=0;i<queue.length;i++){const id=queue[i],d=depth.get(id);if(d===limit)continue;for(const item of adjacency.get(id)){if(!depth.has(item.id)&& (cluster==='all'||String(byId.get(item.id).cluster)===cluster)){depth.set(item.id,d+1);queue.push(item.id);}}}
+  for(let i=0;i<queue.length;i++){const id=queue[i],d=depth.get(id);if(d===limit)continue;for(const item of adjacency.get(id)){if(!depth.has(item.id)&& passesFilters(byId.get(item.id))){depth.set(item.id,d+1);queue.push(item.id);}}}
   positions.set(selected,{x:0,y:0});for(let ring=1;ring<=limit;ring++){const group=queue.filter(id=>depth.get(id)===ring);group.sort((a,b)=>Number(byId.get(b).score-byId.get(a).score)||a.localeCompare(b));group.forEach((id,i)=>{const a=2*Math.PI*i/group.length-Math.PI/2;positions.set(id,{x:Math.cos(a)*ring*245,y:Math.sin(a)*ring*245});});}
  }
  visible=subset.filter(n=>positions.has(n.gid));shownEdges=edges.filter(e=>positions.has(e.src)&&positions.has(e.dst));fit();draw();
@@ -85,7 +96,7 @@ function draw(){const w=canvas.width,h=canvas.height;ctx.clearRect(0,0,w,h);ctx.
  ctx.globalAlpha=1;for(const n of visible){const p=xy(n.gid),active=n.gid===selected,r=active?7:Math.max(2.4,Math.min(5.5,2.5+n.score*3));ctx.fillStyle=color(n);ctx.beginPath();ctx.arc(p.x,p.y,r,0,2*Math.PI);ctx.fill();if(n.seed||active){ctx.strokeStyle=active?'#fff':'#b7c9dd';ctx.lineWidth=active?2:1;ctx.stroke();}if(active||mode!=='overview'&&visible.length<=35){ctx.fillStyle='#e8eef9';ctx.font='11px system-ui';ctx.fillText(n.gid,p.x+9,p.y-7);}}
 }
 function resize(){const rect=stage.getBoundingClientRect();canvas.width=Math.round(rect.width*devicePixelRatio);canvas.height=Math.round(rect.height*devicePixelRatio);fit();draw();}new ResizeObserver(resize).observe(stage);
-function select(id,focus=true){id=String(id);if(!byId.has(id)){document.getElementById('search').setCustomValidity('gid отсутствует в данных');document.getElementById('search').reportValidity();return;}document.getElementById('search').setCustomValidity('');if(cluster!=='all'&&String(byId.get(id).cluster)!==cluster){cluster='all';document.getElementById('cluster').value='all';}selected=id;document.getElementById('search').value=id;if(focus)setMode('one');else{layout();}renderCard();}
+function select(id,focus=true){id=String(id);if(!byId.has(id)){document.getElementById('search').setCustomValidity('gid отсутствует в данных');document.getElementById('search').reportValidity();return;}document.getElementById('search').setCustomValidity('');if(cluster!=='all'&&String(byId.get(id).cluster)!==cluster){cluster='all';document.getElementById('cluster').value='all';}if(!passesFilters(byId.get(id)))clearFilters();selected=id;document.getElementById('search').value=id;if(focus)setMode('one');else{layout();}renderCard();}
 function renderCard(){const n=byId.get(selected);if(!n)return;const card=document.getElementById('card');card.textContent='';const title=document.createElement('div');title.id='gidTitle';title.textContent=n.gid;card.appendChild(title);
  const pills=document.createElement('div');pills.innerHTML=`<span class="pill">${roleNames[n.role]}</span><span class="pill">Кластер ${n.cluster}</span><span class="pill">Колено ${n.depth}</span>${n.seed?'<span class="pill">Seed</span>':''}${n.boundary?'<span class="pill">Граница обхода</span>':''}`;card.appendChild(pills);
  const note=document.createElement('p');note.className='note';note.textContent=n.evidence;card.appendChild(note);
@@ -101,6 +112,7 @@ function renderCard(){const n=byId.get(selected);if(!n)return;const card=documen
 const leaders=nodes.slice().sort((a,b)=>b.score-a.score||a.gid.localeCompare(b.gid)).slice(0,30),box=document.getElementById('leaders');leaders.forEach((n,i)=>{const row=document.createElement('div');row.className='row';const label=document.createElement('span');label.textContent=`${i+1}. ${n.gid}${n.attention!=='нет'?' ⚑':''}`;label.title=n.attention!=='нет'?n.attention:'';const score=document.createElement('b');score.textContent=n.score.toFixed(3);row.append(label,score);row.onclick=()=>select(n.gid);box.appendChild(row);});
 document.getElementById('search').addEventListener('keydown',e=>{if(e.key==='Enter')select(e.target.value.trim());});for(const value of ['overview','one','two'])document.getElementById(value).onclick=()=>setMode(value);
 document.getElementById('colorMode').onchange=e=>{colorMode=e.target.value;draw();};document.getElementById('cluster').onchange=e=>{cluster=e.target.value;if(selected&&cluster!=='all'&&String(byId.get(selected).cluster)!==cluster){selected=null;document.getElementById('search').value='';document.getElementById('card').textContent='Выберите узел в этом кластере.';document.getElementById('connections').textContent='Выберите узел.';setMode('overview');}else{layout();}};
+for(const id of ['roleFilter','minScore','flaggedOnly','seedOnly','boundaryOnly'])document.getElementById(id).addEventListener('input',()=>{if(selected&&!passesFilters(byId.get(selected))){selected=null;document.getElementById('search').value='';document.getElementById('card').textContent='Выберите узел с текущими фильтрами.';document.getElementById('connections').textContent='Выберите узел.';setMode('overview');}else{layout();}});
 canvas.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,ox,oy,moved:false};canvas.setPointerCapture(e.pointerId);});canvas.addEventListener('pointermove',e=>{if(!drag)return;const k=devicePixelRatio;ox=drag.ox+(e.clientX-drag.x)*k;oy=drag.oy+(e.clientY-drag.y)*k;drag.moved ||= Math.hypot(e.clientX-drag.x,e.clientY-drag.y)>4;draw();});canvas.addEventListener('pointerup',e=>{if(!drag)return;const moved=drag.moved;drag=null;if(moved)return;const rect=canvas.getBoundingClientRect(),x=(e.clientX-rect.left)*devicePixelRatio,y=(e.clientY-rect.top)*devicePixelRatio;let best=null,dist=12*devicePixelRatio;for(const n of visible){const p=positions.get(n.gid),d=Math.hypot(p.x*scale+ox-x,p.y*scale+oy-y);if(d<dist){best=n;dist=d;}}if(best)select(best.gid,false);});
 canvas.addEventListener('wheel',e=>{e.preventDefault();const rect=canvas.getBoundingClientRect(),x=(e.clientX-rect.left)*devicePixelRatio,y=(e.clientY-rect.top)*devicePixelRatio,f=e.deltaY<0?1.15:1/1.15;ox=x-(x-ox)*f;oy=y-(y-oy)*f;scale*=f;draw();},{passive:false});
 layout();
