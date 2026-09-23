@@ -18,3 +18,7 @@ Thumbs.db
 
 out/network.html
 out/*.log
+
+# Local reference materials (case brief, dataset notes)
+data/README.md
+docs/
