@@ -681,6 +681,63 @@ def cluster_flows(df: pd.DataFrame, edges: pd.DataFrame):
                              ascending=[False, True, True]).reset_index(drop=True)
 
 
+def cluster_flow_summary(df: pd.DataFrame, edges: pd.DataFrame):
+    """Per-cluster internal and cross-cluster ingress/egress totals."""
+    columns = ["cluster_id", "n_nodes", "n_seed", "internal_kzt",
+               "cross_in_kzt", "cross_out_kzt", "cross_net_kzt",
+               "cross_in_edges", "cross_out_edges", "cross_in_tx", "cross_out_tx",
+               "top_in_clusters", "top_out_clusters"]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    cluster_of = dict(zip(df.gid, df.cluster_id))
+    stats = {}
+    for cid, group in df.groupby("cluster_id", sort=True):
+        stats[int(cid)] = {"cluster_id": int(cid), "n_nodes": int(len(group)),
+                           "n_seed": int(group.is_seed.sum()), "internal_kzt": 0.0,
+                           "cross_in_kzt": 0.0, "cross_out_kzt": 0.0,
+                           "cross_in_edges": 0, "cross_out_edges": 0,
+                           "cross_in_tx": 0, "cross_out_tx": 0,
+                           "in_clusters": defaultdict(float), "out_clusters": defaultdict(float)}
+    for edge in edges.itertuples(index=False):
+        src_cluster = int(cluster_of[edge.src])
+        dst_cluster = int(cluster_of[edge.dst])
+        amount = float(edge.sum_kzt)
+        if src_cluster == dst_cluster:
+            stats[src_cluster]["internal_kzt"] += amount
+            continue
+        src_stats = stats[src_cluster]
+        dst_stats = stats[dst_cluster]
+        src_stats["cross_out_kzt"] += amount
+        src_stats["cross_out_edges"] += 1
+        src_stats["cross_out_tx"] += int(edge.n_tx)
+        src_stats["out_clusters"][dst_cluster] += amount
+        dst_stats["cross_in_kzt"] += amount
+        dst_stats["cross_in_edges"] += 1
+        dst_stats["cross_in_tx"] += int(edge.n_tx)
+        dst_stats["in_clusters"][src_cluster] += amount
+    rows = []
+    for cid in sorted(stats):
+        item = stats[cid]
+        top_in = sorted(item["in_clusters"].items(), key=lambda x: (-x[1], x[0]))[:5]
+        top_out = sorted(item["out_clusters"].items(), key=lambda x: (-x[1], x[0]))[:5]
+        rows.append({"cluster_id": item["cluster_id"],
+                     "n_nodes": item["n_nodes"],
+                     "n_seed": item["n_seed"],
+                     "internal_kzt": round(float(item["internal_kzt"]), 2),
+                     "cross_in_kzt": round(float(item["cross_in_kzt"]), 2),
+                     "cross_out_kzt": round(float(item["cross_out_kzt"]), 2),
+                     "cross_net_kzt": round(float(item["cross_in_kzt"] - item["cross_out_kzt"]), 2),
+                     "cross_in_edges": int(item["cross_in_edges"]),
+                     "cross_out_edges": int(item["cross_out_edges"]),
+                     "cross_in_tx": int(item["cross_in_tx"]),
+                     "cross_out_tx": int(item["cross_out_tx"]),
+                     "top_in_clusters": ";".join(f"{int(other)}:{amount:.2f}" for other, amount in top_in),
+                     "top_out_clusters": ";".join(f"{int(other)}:{amount:.2f}" for other, amount in top_out)})
+    return pd.DataFrame(rows, columns=columns).sort_values(
+        ["cross_in_kzt", "cross_out_kzt", "cluster_id"], ascending=[False, False, True]
+    ).reset_index(drop=True)
+
+
 def seed_coverage(graph: nx.DiGraph, df: pd.DataFrame):
     """Per-seed reachability and direct outgoing footprint."""
     rows = []
@@ -994,6 +1051,39 @@ def seed_role_reach(graph: nx.DiGraph, df: pd.DataFrame):
     return pd.DataFrame(rows, columns=columns)
 
 
+def seed_attention_summary(graph: nx.DiGraph, df: pd.DataFrame, attention_rows: pd.DataFrame):
+    """Optional attention flags inside each seed's four-transfer reachable area."""
+    columns = ["seed_gid", "cluster_id", "flag", "n_nodes", "share_reachable",
+               "avg_priority_score", "top_gids", "meaning"]
+    if df.empty or attention_rows.empty:
+        return pd.DataFrame(columns=columns)
+    lookup = df.set_index("gid")
+    rows = []
+    for seed in df.loc[df.is_seed, "gid"].sort_values():
+        seed = int(seed)
+        seen = nx.single_source_shortest_path_length(graph, seed, cutoff=4)
+        reachable = {int(node) for node in seen if int(node) != seed}
+        if not reachable:
+            continue
+        reachable_attention = attention_rows[attention_rows.gid.isin(reachable)]
+        if reachable_attention.empty:
+            continue
+        for flag, group in reachable_attention.groupby("flag", sort=True):
+            leaders = group.sort_values(["priority_score", "gid"], ascending=[False, True]).head(5)
+            n_nodes = group.gid.nunique()
+            rows.append({"seed_gid": seed,
+                         "cluster_id": int(lookup.loc[seed, "cluster_id"]),
+                         "flag": flag,
+                         "n_nodes": int(n_nodes),
+                         "share_reachable": round(n_nodes / len(reachable), 4),
+                         "avg_priority_score": round(float(group.priority_score.mean()), 6),
+                         "top_gids": ";".join(str(int(gid)) for gid in leaders.gid),
+                         "meaning": group.meaning.iloc[0]})
+    return pd.DataFrame(rows, columns=columns).sort_values(
+        ["seed_gid", "n_nodes", "flag"], ascending=[True, False, True]
+    ).reset_index(drop=True)
+
+
 def route_node_membership(routes: pd.DataFrame, df: pd.DataFrame):
     """Explode route paths into one row per route node and position."""
     columns = ["route_id", "kind", "position", "gid", "role", "cluster_id",
@@ -1014,6 +1104,36 @@ def route_node_membership(routes: pd.DataFrame, df: pd.DataFrame):
                          "cluster_id": int(meta.cluster_id),
                          "is_seed": bool(meta.is_seed),
                          "priority_score": round(float(meta.priority_score), 6),
+                         "path": route.path})
+    return pd.DataFrame(rows, columns=columns)
+
+
+def route_edge_membership(routes: pd.DataFrame, edges: pd.DataFrame, df: pd.DataFrame):
+    """Explode route paths into one row per observed route hop."""
+    columns = ["route_id", "kind", "hop", "src", "dst", "src_role", "dst_role",
+               "src_cluster", "dst_cluster", "sum_kzt", "n_tx", "path"]
+    if routes.empty:
+        return pd.DataFrame(columns=columns)
+    meta = df.set_index("gid")
+    edge_lookup = edges.set_index(["src", "dst"])
+    rows = []
+    for route in routes.itertuples(index=False):
+        path = [int(part.strip()) for part in route.path.split("→")]
+        for hop, (src, dst) in enumerate(zip(path, path[1:]), start=1):
+            edge = edge_lookup.loc[(src, dst)]
+            src_meta = meta.loc[src]
+            dst_meta = meta.loc[dst]
+            rows.append({"route_id": int(route.route_id),
+                         "kind": route.kind,
+                         "hop": int(hop),
+                         "src": int(src),
+                         "dst": int(dst),
+                         "src_role": src_meta.role,
+                         "dst_role": dst_meta.role,
+                         "src_cluster": int(src_meta.cluster_id),
+                         "dst_cluster": int(dst_meta.cluster_id),
+                         "sum_kzt": round(float(edge.sum_kzt), 2),
+                         "n_tx": int(edge.n_tx),
                          "path": route.path})
     return pd.DataFrame(rows, columns=columns)
 
@@ -1202,6 +1322,7 @@ def depth_flows(edges: pd.DataFrame, df: pd.DataFrame):
 def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   routes: pd.DataFrame, resilience: pd.DataFrame, gaps: pd.DataFrame,
                   risk_flags: pd.DataFrame, flows: pd.DataFrame,
+                  cluster_flow_rows: pd.DataFrame,
                   seed_report: pd.DataFrame, seed_components: pd.DataFrame,
                   components: pd.DataFrame, component_roles: pd.DataFrame,
                   component_attention: pd.DataFrame,
@@ -1210,10 +1331,12 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   top_edges: pd.DataFrame, daily: pd.DataFrame,
                   boundary_queue: pd.DataFrame, cluster_roles: pd.DataFrame,
                   seed_roles: pd.DataFrame, seed_overlap_rows: pd.DataFrame,
+                  seed_attention: pd.DataFrame,
                   attention_rows: pd.DataFrame, cluster_attention: pd.DataFrame,
                   role_attention: pd.DataFrame, depth_attention: pd.DataFrame,
                   attention_overlap: pd.DataFrame,
-                  route_nodes: pd.DataFrame, cycle_nodes: pd.DataFrame,
+                  route_nodes: pd.DataFrame, route_edges: pd.DataFrame,
+                  cycle_nodes: pd.DataFrame,
                   depths: pd.DataFrame, cluster_depths: pd.DataFrame,
                   role_depths: pd.DataFrame, role_flow_rows: pd.DataFrame,
                   depth_flow_rows: pd.DataFrame, counterparties: pd.DataFrame,
@@ -1284,6 +1407,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     gaps.to_csv(out / "data_gaps.csv", index=False)
     risk_flags.to_csv(out / "risk_flags.csv", index=False)
     flows.to_csv(out / "cluster_flows.csv", index=False)
+    cluster_flow_rows.to_csv(out / "cluster_flow_summary.csv", index=False)
     seed_report.to_csv(out / "seed_coverage.csv", index=False)
     seed_components.to_csv(out / "seed_components.csv", index=False)
     components.to_csv(out / "components.csv", index=False)
@@ -1298,12 +1422,14 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     cluster_roles.to_csv(out / "cluster_roles.csv", index=False)
     seed_roles.to_csv(out / "seed_role_reach.csv", index=False)
     seed_overlap_rows.to_csv(out / "seed_overlap.csv", index=False)
+    seed_attention.to_csv(out / "seed_attention.csv", index=False)
     attention_rows.to_csv(out / "attention_examples.csv", index=False)
     cluster_attention.to_csv(out / "cluster_attention.csv", index=False)
     role_attention.to_csv(out / "role_attention.csv", index=False)
     depth_attention.to_csv(out / "depth_attention.csv", index=False)
     attention_overlap.to_csv(out / "attention_overlap.csv", index=False)
     route_nodes.to_csv(out / "route_nodes.csv", index=False)
+    route_edges.to_csv(out / "route_edges.csv", index=False)
     cycle_nodes.to_csv(out / "cycle_nodes.csv", index=False)
     depths.to_csv(out / "depth_summary.csv", index=False)
     cluster_depths.to_csv(out / "cluster_depths.csv", index=False)
@@ -1354,6 +1480,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "cycles": cycles.to_dict(orient="records"),
                "routes": routes.to_dict(orient="records"),
                "clusterFlows": flows.to_dict(orient="records"),
+               "clusterFlowSummary": cluster_flow_rows.to_dict(orient="records"),
                "clusters": cluster_payload,
                "gaps": gaps.to_dict(orient="records"),
                "riskFlags": risk_flags.to_dict(orient="records"),
@@ -1371,12 +1498,14 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "clusterRoles": cluster_roles.to_dict(orient="records"),
                "seedRoleReach": seed_roles.to_dict(orient="records"),
                "seedOverlap": seed_overlap_rows.to_dict(orient="records"),
+               "seedAttention": seed_attention.to_dict(orient="records"),
                "attentionExamples": attention_rows.to_dict(orient="records"),
                "clusterAttention": cluster_attention.to_dict(orient="records"),
                "roleAttention": role_attention.to_dict(orient="records"),
                "depthAttention": depth_attention.to_dict(orient="records"),
                "attentionOverlap": attention_overlap.to_dict(orient="records"),
                "routeNodes": route_nodes.to_dict(orient="records"),
+               "routeEdges": route_edges.to_dict(orient="records"),
                "cycleNodes": cycle_nodes.to_dict(orient="records"),
                "depthSummary": depths.to_dict(orient="records"),
                "clusterDepths": cluster_depths.to_dict(orient="records"),
@@ -1412,6 +1541,7 @@ def main():
     gaps = data_gaps(df, graph)
     risk_flags = risk_flags_summary(df)
     flows = cluster_flows(df, edges)
+    cluster_flow_rows = cluster_flow_summary(df, edges)
     seed_report = seed_coverage(graph, df)
     seed_components = seed_component_summary(graph, df, edges)
     components = component_summary(graph, df, edges)
@@ -1426,12 +1556,14 @@ def main():
     seed_roles = seed_role_reach(graph, df)
     seed_overlap_rows = seed_overlap(graph, df)
     attention_rows = attention_examples(df)
+    seed_attention = seed_attention_summary(graph, df, attention_rows)
     component_attention = component_attention_summary(graph, df, attention_rows)
     cluster_attention = cluster_attention_summary(df, attention_rows)
     role_attention = role_attention_summary(df, attention_rows)
     depth_attention = depth_attention_summary(df, attention_rows)
     attention_overlap = attention_overlap_summary(attention_rows)
     route_nodes = route_node_membership(routes, df)
+    route_edges = route_edge_membership(routes, edges, df)
     cycle_nodes = cycle_node_membership(cycles, df)
     depths = depth_summary(df)
     cluster_depths = cluster_depth_matrix(df)
@@ -1440,12 +1572,14 @@ def main():
     depth_flow_rows = depth_flows(edges, df)
     counterparties = top_counterparties(edges, df)
     write_outputs(df, edges, cycles, routes, resilience, gaps, risk_flags, flows,
+                  cluster_flow_rows,
                   seed_report, seed_components, components, component_roles,
                   component_attention, isolated_nodes, amount_bands, roles, top_edges,
                   daily, boundary_queue, cluster_roles, seed_roles, seed_overlap_rows,
+                  seed_attention,
                   attention_rows, cluster_attention, role_attention, depth_attention,
                   attention_overlap,
-                  route_nodes, cycle_nodes, depths, cluster_depths, role_depths,
+                  route_nodes, route_edges, cycle_nodes, depths, cluster_depths, role_depths,
                   role_flow_rows, depth_flow_rows, counterparties,
                   timeline, args.out)
     assert len(df) == len(nodes) and set(df.role) <= ROLES

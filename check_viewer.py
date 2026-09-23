@@ -23,12 +23,13 @@ def extract_payload(html: str) -> dict:
 
 def check_viewer(path: Path) -> dict:
     payload = extract_payload(path.read_text(encoding="utf-8"))
-    required = {"nodes", "edges", "cycles", "routes", "clusters", "clusterFlows",
+    required = {"nodes", "edges", "cycles", "routes", "clusters", "clusterFlows", "clusterFlowSummary",
                 "gaps", "riskFlags", "seedCoverage", "seedComponents", "components",
                 "componentRoles", "componentAttention", "isolatedNodes", "amountBands",
                 "roleSummary", "topEdges", "dailySummary", "boundaryReview",
-                "clusterRoles", "seedRoleReach", "seedOverlap", "attentionExamples", "clusterAttention",
-                "roleAttention", "depthAttention", "attentionOverlap", "routeNodes",
+                "clusterRoles", "seedRoleReach", "seedOverlap", "seedAttention",
+                "attentionExamples", "clusterAttention",
+                "roleAttention", "depthAttention", "attentionOverlap", "routeNodes", "routeEdges",
                 "cycleNodes", "depthSummary", "clusterDepths", "roleDepths",
                 "roleFlows", "depthFlows", "topCounterparties"}
     missing = required - set(payload)

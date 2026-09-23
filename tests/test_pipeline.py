@@ -151,6 +151,16 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(by_route.loc[row.Index], row.hops + 1)
         self.assertTrue(set(route_nodes.gid).issubset(set(self.nodes.gid)))
         self.assertTrue(route_nodes.position.ge(1).all())
+        route_edges = pd.read_csv(self.out / "route_edges.csv")
+        self.assertEqual(route_edges.route_id.nunique(), len(routes))
+        self.assertEqual(len(route_edges), int(routes.hops.sum()))
+        by_route_edges = route_edges.groupby("route_id").size()
+        for row in routes.set_index("route_id").itertuples():
+            self.assertEqual(by_route_edges.loc[row.Index], row.hops)
+        source_edges = pd.read_parquet(ROOT / "data" / "edges.parquet")
+        edge_pairs = set(zip(source_edges.src, source_edges.dst))
+        self.assertTrue(set(zip(route_edges.src, route_edges.dst)).issubset(edge_pairs))
+        self.assertTrue(route_edges.hop.ge(1).all())
 
     def test_resilience_and_gaps(self):
         resilience = pd.read_csv(self.out / "resilience.csv")
@@ -212,6 +222,18 @@ class PipelineTest(unittest.TestCase):
             if lookup[edge.src] != lookup[edge.dst]:
                 expected += edge.sum_kzt
         self.assertTrue(np.isclose(flows.sum_kzt.sum(), expected, atol=.01))
+        cluster_flow_summary = pd.read_csv(self.out / "cluster_flow_summary.csv")
+        cluster_totals = self.clusters.set_index("cluster_id").sort_index()
+        summary = cluster_flow_summary.set_index("cluster_id").sort_index()
+        self.assertEqual(set(summary.index), set(cluster_totals.index))
+        self.assertEqual(cluster_flow_summary.n_nodes.sum(), len(self.nodes))
+        self.assertEqual(cluster_flow_summary.n_seed.sum(), int(self.nodes.is_seed.sum()))
+        self.assertTrue(np.isclose(cluster_flow_summary.internal_kzt.sum(),
+                                   self.clusters.sum_kzt_internal.sum(), atol=.01))
+        self.assertTrue(np.isclose(cluster_flow_summary.cross_in_kzt.sum(), flows.sum_kzt.sum(), atol=.01))
+        self.assertTrue(np.isclose(cluster_flow_summary.cross_out_kzt.sum(), flows.sum_kzt.sum(), atol=.01))
+        self.assertTrue(np.isclose(cluster_flow_summary.cross_net_kzt.sum(), 0.0, atol=.01))
+        self.assertTrue((summary.n_nodes == cluster_totals.n_nodes).all())
         seeds = pd.read_csv(self.out / "seed_coverage.csv")
         self.assertEqual(len(seeds), int(self.nodes.is_seed.sum()))
         self.assertTrue(seeds.max_depth_reached.between(0, 4).all())
@@ -323,6 +345,17 @@ class PipelineTest(unittest.TestCase):
             self.assertTrue(0 <= row.share_b <= 1)
             examples = [int(gid) for gid in str(row.top_shared_gids).split(";") if gid]
             self.assertTrue(set(examples).issubset(shared))
+        seed_attention = pd.read_csv(self.out / "seed_attention.csv")
+        for row in seed_attention.itertuples(index=False):
+            reachable = seed_reach[int(row.seed_gid)]
+            flagged = attention_examples[
+                (attention_examples.flag == row.flag) & (attention_examples.gid.isin(reachable))
+            ]
+            self.assertEqual(row.n_nodes, flagged.gid.nunique())
+            self.assertTrue(0 < row.n_nodes <= len(reachable))
+            self.assertTrue(0 < row.share_reachable <= 1)
+            examples = [int(gid) for gid in str(row.top_gids).split(";") if gid]
+            self.assertTrue(set(examples).issubset(set(flagged.gid)))
         depths = pd.read_csv(self.out / "depth_summary.csv").set_index("depth")
         self.assertEqual(depths.n_nodes.sum(), len(self.nodes))
         self.assertTrue(np.isclose(depths.share_nodes.sum(), 1.0, atol=.001))
@@ -399,6 +432,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"cycles":[', html)
         self.assertIn('"clusters":[', html)
         self.assertIn('"clusterFlows":[', html)
+        self.assertIn('"clusterFlowSummary":[', html)
         self.assertIn('"gaps":[', html)
         self.assertIn('"seedCoverage":[', html)
         self.assertIn('"seedComponents":[', html)
@@ -414,12 +448,14 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"clusterRoles":[', html)
         self.assertIn('"seedRoleReach":[', html)
         self.assertIn('"seedOverlap":[', html)
+        self.assertIn('"seedAttention":[', html)
         self.assertIn('"attentionExamples":[', html)
         self.assertIn('"clusterAttention":[', html)
         self.assertIn('"roleAttention":[', html)
         self.assertIn('"depthAttention":[', html)
         self.assertIn('"attentionOverlap":[', html)
         self.assertIn('"routeNodes":[', html)
+        self.assertIn('"routeEdges":[', html)
         self.assertIn('"cycleNodes":[', html)
         self.assertIn('"depthSummary":[', html)
         self.assertIn('"clusterDepths":[', html)
@@ -447,14 +483,16 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             for name in ("nodes_roles.csv", "clusters.csv", "top_nodes.csv",
                          "cycles.csv", "routes.csv", "resilience.csv", "data_gaps.csv",
-                         "risk_flags.csv", "cluster_flows.csv", "seed_coverage.csv",
+                         "risk_flags.csv", "cluster_flows.csv", "cluster_flow_summary.csv", "seed_coverage.csv",
                          "seed_components.csv", "components.csv", "component_roles.csv",
                          "component_attention.csv", "isolated_nodes.csv",
                          "amount_bands.csv", "role_summary.csv",
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
-                         "cluster_roles.csv", "seed_role_reach.csv", "seed_overlap.csv", "attention_examples.csv",
+                         "cluster_roles.csv", "seed_role_reach.csv", "seed_overlap.csv", "seed_attention.csv",
+                         "attention_examples.csv",
                          "cluster_attention.csv", "role_attention.csv", "depth_attention.csv",
-                         "attention_overlap.csv", "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
+                         "attention_overlap.csv", "route_nodes.csv", "route_edges.csv",
+                         "cycle_nodes.csv", "depth_summary.csv",
                          "cluster_depths.csv", "role_depths.csv", "role_flows.csv", "depth_flows.csv",
                          "top_counterparties.csv",
                          "timeline.csv", "network.html"):
