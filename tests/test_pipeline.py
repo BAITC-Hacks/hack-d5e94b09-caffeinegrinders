@@ -179,6 +179,12 @@ class PipelineTest(unittest.TestCase):
         actual_attention = cluster_attention.set_index(["cluster_id", "flag"]).n_nodes
         self.assertEqual(actual_attention.to_dict(), expected_attention.to_dict())
         self.assertTrue(cluster_attention.share_cluster.between(0, 1).all())
+        role_attention = pd.read_csv(self.out / "role_attention.csv")
+        expected_role_attention = attention_examples.groupby(["role", "flag"]).gid.nunique()
+        actual_role_attention = role_attention.set_index(["role", "flag"]).n_nodes
+        self.assertEqual(actual_role_attention.to_dict(), expected_role_attention.to_dict())
+        self.assertTrue(role_attention.share_role.between(0, 1).all())
+        self.assertTrue(set(role_attention.role).issubset(set(self.nodes.role)))
         flows = pd.read_csv(self.out / "cluster_flows.csv")
         lookup = dict(zip(self.nodes.gid, self.nodes.cluster_id))
         expected = 0.0
@@ -390,6 +396,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"seedOverlap":[', html)
         self.assertIn('"attentionExamples":[', html)
         self.assertIn('"clusterAttention":[', html)
+        self.assertIn('"roleAttention":[', html)
         self.assertIn('"routeNodes":[', html)
         self.assertIn('"cycleNodes":[', html)
         self.assertIn('"depthSummary":[', html)
@@ -424,7 +431,7 @@ class PipelineTest(unittest.TestCase):
                          "amount_bands.csv", "role_summary.csv",
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
                          "cluster_roles.csv", "seed_role_reach.csv", "seed_overlap.csv", "attention_examples.csv",
-                         "cluster_attention.csv", "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
+                         "cluster_attention.csv", "role_attention.csv", "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
                          "cluster_depths.csv", "role_depths.csv", "role_flows.csv", "depth_flows.csv",
                          "top_counterparties.csv",
                          "timeline.csv", "network.html"):
