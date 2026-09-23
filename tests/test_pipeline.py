@@ -243,6 +243,13 @@ class PipelineTest(unittest.TestCase):
         self.assertTrue(np.isclose(depths.share_nodes.sum(), 1.0, atol=.001))
         self.assertEqual(depths.loc[4, "boundary_nodes"], int(self.nodes.boundary.sum()))
         self.assertEqual(depths.loc[0, "n_seed"], int(self.nodes[self.nodes.depth == 0].is_seed.sum()))
+        cluster_depths = pd.read_csv(self.out / "cluster_depths.csv")
+        by_cluster_depth = cluster_depths.groupby("cluster_id").n_nodes.sum().sort_index()
+        expected_by_cluster_depth = self.nodes.groupby("cluster_id").size().sort_index()
+        self.assertEqual(by_cluster_depth.to_dict(), expected_by_cluster_depth.to_dict())
+        self.assertTrue(cluster_depths.share_cluster.between(0, 1).all())
+        boundary_depths = cluster_depths.groupby("depth").boundary_nodes.sum()
+        self.assertEqual(boundary_depths.get(4, 0), int(self.nodes.boundary.sum()))
 
     def test_timeline_matches_transactions(self):
         timeline = pd.read_csv(self.out / "timeline.csv")
@@ -286,6 +293,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"routeNodes":[', html)
         self.assertIn('"cycleNodes":[', html)
         self.assertIn('"depthSummary":[', html)
+        self.assertIn('"clusterDepths":[', html)
         self.assertIn("<canvas", html)
 
     def test_outputs_are_identical_after_input_rows_are_shuffled(self):
@@ -311,7 +319,7 @@ class PipelineTest(unittest.TestCase):
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
                          "cluster_roles.csv", "seed_role_reach.csv", "attention_examples.csv",
                          "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
-                         "timeline.csv", "network.html"):
+                         "cluster_depths.csv", "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),
