@@ -399,6 +399,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
         if cluster_of[src] == cluster_of[dst]:
             internal[cluster_of[src]] += float(amount)
     clusters = []
+    cluster_payload = []
     for cid, group in df.groupby("cluster_id", sort=True):
         leaders = group.sort_values(["priority_score", "gid"], ascending=[False, True]).head(5)
         counts = group.role.value_counts().to_dict()
@@ -426,6 +427,11 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                          "sum_kzt_internal": round(internal[cid], 2),
                          "top_gids": ";".join(str(x) for x in leaders.gid),
                          "hypothesis": hypothesis})
+        cluster_payload.append({"id": int(cid), "nNodes": int(len(group)), "nSeed": n_seed,
+                                "sumKztInternal": round(internal[cid], 2),
+                                "topGids": [str(x) for x in leaders.gid],
+                                "roles": {k: int(v) for k, v in counts.items()},
+                                "hypothesis": hypothesis})
     pd.DataFrame(clusters).to_csv(out / "clusters.csv", index=False)
     leaders = df.sort_values(["priority_score", "gid"], ascending=[False, True]).head(max(20, min(100, len(df)))).copy()
     leaders.insert(0, "rank", range(1, len(leaders) + 1))
@@ -473,7 +479,8 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                           "timeline": timeline_by_gid[int(r.gid)]}
                          for r in df.itertuples(index=False)],
                "edges": [{"src": str(r.src), "dst": str(r.dst), "amount": float(r.sum_kzt), "count": int(r.n_tx)}
-                         for r in edges.itertuples(index=False)]}
+                         for r in edges.itertuples(index=False)],
+               "clusters": cluster_payload}
     page = (ROOT / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("/* GRAPH_DATA */ null", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     (out / "network.html").write_text(page, encoding="utf-8")
