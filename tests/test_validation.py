@@ -16,7 +16,8 @@ from run import (
     isolated_nodes_report, amount_band_summary, role_summary, top_edge_summary, daily_summary,
     boundary_review, cluster_role_matrix, seed_role_reach, route_node_membership,
     cycle_node_membership, depth_summary, cluster_depth_matrix, role_depth_matrix,
-    write_outputs, daily_timeline, role_flows, depth_flows, seed_overlap, top_counterparties,
+    write_outputs, daily_timeline, role_flows, depth_flows, seed_overlap,
+    seed_attention_summary, top_counterparties,
 )
 
 
@@ -110,6 +111,7 @@ class ValidationTest(unittest.TestCase):
         seed_roles = seed_role_reach(graph, df)
         seed_overlap_rows = seed_overlap(graph, df)
         attention_rows = attention_examples(df)
+        seed_attention = seed_attention_summary(graph, df, attention_rows)
         component_attention = component_attention_summary(graph, df, attention_rows)
         cluster_attention = cluster_attention_summary(df, attention_rows)
         role_attention = role_attention_summary(df, attention_rows)
@@ -129,6 +131,7 @@ class ValidationTest(unittest.TestCase):
                       seed_report, seed_components, components, component_roles,
                       component_attention, isolated_nodes, amount_bands, roles, top_edges,
                       daily, boundary_queue, cluster_roles, seed_roles, seed_overlap_rows,
+                      seed_attention,
                       attention_rows, cluster_attention, role_attention, depth_attention,
                       attention_overlap,
                       route_nodes, cycle_nodes, depths, cluster_depths, role_depths,
@@ -161,6 +164,7 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(len(seed_roles), 1)
         self.assertEqual(seed_roles.loc[0, "reachable_nodes"], 0)
         self.assertTrue(pd.read_csv(self.path / "out" / "seed_overlap.csv").empty)
+        self.assertTrue(pd.read_csv(self.path / "out" / "seed_attention.csv").empty)
         self.assertTrue(pd.read_csv(self.path / "out" / "attention_examples.csv").empty)
         self.assertTrue(pd.read_csv(self.path / "out" / "cluster_attention.csv").empty)
         self.assertTrue(pd.read_csv(self.path / "out" / "role_attention.csv").empty)

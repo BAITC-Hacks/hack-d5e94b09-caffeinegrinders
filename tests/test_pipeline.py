@@ -335,6 +335,17 @@ class PipelineTest(unittest.TestCase):
             self.assertTrue(0 <= row.share_b <= 1)
             examples = [int(gid) for gid in str(row.top_shared_gids).split(";") if gid]
             self.assertTrue(set(examples).issubset(shared))
+        seed_attention = pd.read_csv(self.out / "seed_attention.csv")
+        for row in seed_attention.itertuples(index=False):
+            reachable = seed_reach[int(row.seed_gid)]
+            flagged = attention_examples[
+                (attention_examples.flag == row.flag) & (attention_examples.gid.isin(reachable))
+            ]
+            self.assertEqual(row.n_nodes, flagged.gid.nunique())
+            self.assertTrue(0 < row.n_nodes <= len(reachable))
+            self.assertTrue(0 < row.share_reachable <= 1)
+            examples = [int(gid) for gid in str(row.top_gids).split(";") if gid]
+            self.assertTrue(set(examples).issubset(set(flagged.gid)))
         depths = pd.read_csv(self.out / "depth_summary.csv").set_index("depth")
         self.assertEqual(depths.n_nodes.sum(), len(self.nodes))
         self.assertTrue(np.isclose(depths.share_nodes.sum(), 1.0, atol=.001))
@@ -427,6 +438,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('"clusterRoles":[', html)
         self.assertIn('"seedRoleReach":[', html)
         self.assertIn('"seedOverlap":[', html)
+        self.assertIn('"seedAttention":[', html)
         self.assertIn('"attentionExamples":[', html)
         self.assertIn('"clusterAttention":[', html)
         self.assertIn('"roleAttention":[', html)
@@ -465,7 +477,8 @@ class PipelineTest(unittest.TestCase):
                          "component_attention.csv", "isolated_nodes.csv",
                          "amount_bands.csv", "role_summary.csv",
                          "top_edges.csv", "daily_summary.csv", "boundary_review.csv",
-                         "cluster_roles.csv", "seed_role_reach.csv", "seed_overlap.csv", "attention_examples.csv",
+                         "cluster_roles.csv", "seed_role_reach.csv", "seed_overlap.csv", "seed_attention.csv",
+                         "attention_examples.csv",
                          "cluster_attention.csv", "role_attention.csv", "depth_attention.csv",
                          "attention_overlap.csv", "route_nodes.csv", "cycle_nodes.csv", "depth_summary.csv",
                          "cluster_depths.csv", "role_depths.csv", "role_flows.csv", "depth_flows.csv",

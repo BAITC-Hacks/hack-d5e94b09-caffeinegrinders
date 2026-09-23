@@ -1051,6 +1051,39 @@ def seed_role_reach(graph: nx.DiGraph, df: pd.DataFrame):
     return pd.DataFrame(rows, columns=columns)
 
 
+def seed_attention_summary(graph: nx.DiGraph, df: pd.DataFrame, attention_rows: pd.DataFrame):
+    """Optional attention flags inside each seed's four-transfer reachable area."""
+    columns = ["seed_gid", "cluster_id", "flag", "n_nodes", "share_reachable",
+               "avg_priority_score", "top_gids", "meaning"]
+    if df.empty or attention_rows.empty:
+        return pd.DataFrame(columns=columns)
+    lookup = df.set_index("gid")
+    rows = []
+    for seed in df.loc[df.is_seed, "gid"].sort_values():
+        seed = int(seed)
+        seen = nx.single_source_shortest_path_length(graph, seed, cutoff=4)
+        reachable = {int(node) for node in seen if int(node) != seed}
+        if not reachable:
+            continue
+        reachable_attention = attention_rows[attention_rows.gid.isin(reachable)]
+        if reachable_attention.empty:
+            continue
+        for flag, group in reachable_attention.groupby("flag", sort=True):
+            leaders = group.sort_values(["priority_score", "gid"], ascending=[False, True]).head(5)
+            n_nodes = group.gid.nunique()
+            rows.append({"seed_gid": seed,
+                         "cluster_id": int(lookup.loc[seed, "cluster_id"]),
+                         "flag": flag,
+                         "n_nodes": int(n_nodes),
+                         "share_reachable": round(n_nodes / len(reachable), 4),
+                         "avg_priority_score": round(float(group.priority_score.mean()), 6),
+                         "top_gids": ";".join(str(int(gid)) for gid in leaders.gid),
+                         "meaning": group.meaning.iloc[0]})
+    return pd.DataFrame(rows, columns=columns).sort_values(
+        ["seed_gid", "n_nodes", "flag"], ascending=[True, False, True]
+    ).reset_index(drop=True)
+
+
 def route_node_membership(routes: pd.DataFrame, df: pd.DataFrame):
     """Explode route paths into one row per route node and position."""
     columns = ["route_id", "kind", "position", "gid", "role", "cluster_id",
@@ -1268,6 +1301,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                   top_edges: pd.DataFrame, daily: pd.DataFrame,
                   boundary_queue: pd.DataFrame, cluster_roles: pd.DataFrame,
                   seed_roles: pd.DataFrame, seed_overlap_rows: pd.DataFrame,
+                  seed_attention: pd.DataFrame,
                   attention_rows: pd.DataFrame, cluster_attention: pd.DataFrame,
                   role_attention: pd.DataFrame, depth_attention: pd.DataFrame,
                   attention_overlap: pd.DataFrame,
@@ -1357,6 +1391,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
     cluster_roles.to_csv(out / "cluster_roles.csv", index=False)
     seed_roles.to_csv(out / "seed_role_reach.csv", index=False)
     seed_overlap_rows.to_csv(out / "seed_overlap.csv", index=False)
+    seed_attention.to_csv(out / "seed_attention.csv", index=False)
     attention_rows.to_csv(out / "attention_examples.csv", index=False)
     cluster_attention.to_csv(out / "cluster_attention.csv", index=False)
     role_attention.to_csv(out / "role_attention.csv", index=False)
@@ -1431,6 +1466,7 @@ def write_outputs(df: pd.DataFrame, edges: pd.DataFrame, cycles: pd.DataFrame,
                "clusterRoles": cluster_roles.to_dict(orient="records"),
                "seedRoleReach": seed_roles.to_dict(orient="records"),
                "seedOverlap": seed_overlap_rows.to_dict(orient="records"),
+               "seedAttention": seed_attention.to_dict(orient="records"),
                "attentionExamples": attention_rows.to_dict(orient="records"),
                "clusterAttention": cluster_attention.to_dict(orient="records"),
                "roleAttention": role_attention.to_dict(orient="records"),
@@ -1487,6 +1523,7 @@ def main():
     seed_roles = seed_role_reach(graph, df)
     seed_overlap_rows = seed_overlap(graph, df)
     attention_rows = attention_examples(df)
+    seed_attention = seed_attention_summary(graph, df, attention_rows)
     component_attention = component_attention_summary(graph, df, attention_rows)
     cluster_attention = cluster_attention_summary(df, attention_rows)
     role_attention = role_attention_summary(df, attention_rows)
@@ -1505,6 +1542,7 @@ def main():
                   seed_report, seed_components, components, component_roles,
                   component_attention, isolated_nodes, amount_bands, roles, top_edges,
                   daily, boundary_queue, cluster_roles, seed_roles, seed_overlap_rows,
+                  seed_attention,
                   attention_rows, cluster_attention, role_attention, depth_attention,
                   attention_overlap,
                   route_nodes, cycle_nodes, depths, cluster_depths, role_depths,
