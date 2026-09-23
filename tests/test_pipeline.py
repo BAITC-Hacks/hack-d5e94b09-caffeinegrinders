@@ -150,6 +150,10 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(gaps.loc["seed_without_outgoing", "n_nodes"],
                          (self.nodes.is_seed & (self.nodes.out_deg == 0)).sum())
         self.assertTrue(gaps.next_request.str.len().gt(0).all())
+        flags = pd.read_csv(self.out / "risk_flags.csv").set_index("flag")
+        self.assertEqual(flags.loc["cycle", "n_nodes"], (self.nodes.cycles > 0).sum())
+        self.assertEqual(flags.loc["relay_route", "n_nodes"], (self.nodes.relay_routes > 0).sum())
+        self.assertTrue(flags.share.between(0, 1).all())
 
     def test_timeline_matches_transactions(self):
         timeline = pd.read_csv(self.out / "timeline.csv")
@@ -198,7 +202,7 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             for name in ("nodes_roles.csv", "clusters.csv", "top_nodes.csv",
                          "cycles.csv", "routes.csv", "resilience.csv", "data_gaps.csv",
-                         "timeline.csv", "network.html"):
+                         "risk_flags.csv", "timeline.csv", "network.html"):
                 with self.subTest(file=name):
                     self.assertTrue((out_dir / name).is_file(), f"Missing output: {name}")
                     self.assertEqual((self.out / name).read_bytes(),
