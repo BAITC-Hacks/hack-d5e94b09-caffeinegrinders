@@ -23,7 +23,7 @@ def extract_payload(html: str) -> dict:
 
 def check_viewer(path: Path) -> dict:
     payload = extract_payload(path.read_text(encoding="utf-8"))
-    required = {"nodes", "edges", "routes", "clusters", "clusterFlows", "gaps", "riskFlags"}
+    required = {"nodes", "edges", "cycles", "routes", "clusters", "clusterFlows", "gaps", "riskFlags"}
     missing = required - set(payload)
     if missing:
         raise ValueError(f"viewer payload missing keys: {sorted(missing)}")
